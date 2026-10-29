@@ -4,6 +4,7 @@ import {
   STATUS_LABELS,
   formatMoney,
   formatTotals,
+  resubmissionInfo,
   type Approval,
   type Flow,
   type Item,
@@ -90,7 +91,10 @@ export function Reports() {
               {list.data.map((r) => (
                 <tr key={`${r.companyId}/${r.id}`} className="clickable" onClick={() => setOpen(r)}>
                   <td>
-                    <div className="strong">{r.title}</div>
+                    <div className="row tight">
+                      <span className="strong">{r.title}</span>
+                      {resubmissionInfo(r).round > 1 && <span className="badge resent">↻ {resubmissionInfo(r).round}° envío</span>}
+                    </div>
                     <div className="muted small">{r.ownerName}</div>
                   </td>
                   {!companyId && <td>{companyName(r.companyId)}</td>}

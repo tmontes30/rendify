@@ -82,10 +82,10 @@ export function App() {
 
   return (
     <CompanyContext.Provider value={{ companies, companyId, setCompanyId, reloadCompanies, companyName, webUrl: session.webUrl }}>
-      <div className="shell">
+      <div className="shell admin-shell">
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <Logo />
+            <Logo variant="admin" />
             <div>
               <div className="brand-name">Rendiciones</div>
               <div className="brand-sub">Panel owner</div>

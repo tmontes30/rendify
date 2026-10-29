@@ -7,6 +7,7 @@ import {
   formatMoney,
   formatTotals,
   nextRequiredLevel,
+  resubmissionInfo,
   sumTotals,
   type Category,
   type Flow,
@@ -16,6 +17,7 @@ import {
 import { useSession } from '../auth';
 import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories } from '../data';
 import { StatusBadge } from '../components/StatusBadge';
+import { ResubmittedNotice } from '../components/ReportRow';
 import { ReportEditor } from './ReportEditor';
 
 export function ReportPage() {
@@ -170,6 +172,11 @@ function DecisionBox({ report, items, flow, onDone }: { report: Report; items: I
   return (
     <div className="card decision-card">
       <h2>Tu decisión</h2>
+      {resubmissionInfo(report).lastRejection && (
+        <div style={{ marginBottom: 12 }}>
+          <ResubmittedNotice info={resubmissionInfo(report)} owner={report.ownerName} />
+        </div>
+      )}
       <p className="muted small">
         {next == null
           ? 'Si apruebas, la rendición queda aprobada y pasa a pago.'

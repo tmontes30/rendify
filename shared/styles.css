@@ -441,3 +441,14 @@ tr.row-bad td { background: var(--bad-soft); }
   .step::before { display: none; }
   .step-body { margin-top: 2px; }
 }
+
+/* ===== Reenvíos ===== */
+.badge.resent { background: var(--warn-soft); color: var(--warn); }
+.resent-notice { background: var(--warn-soft); color: var(--text); border-left: 4px solid var(--warn); border-radius: var(--radius-sm); padding: 10px 14px; }
+.resent-notice .strong { color: var(--warn); margin-bottom: 2px; }
+.group-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 14px; }
+.report-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ===== Panel owner: acento gris para diferenciarlo ===== */
+.admin-shell .sidebar { background: #1f2329; }
+.admin-shell .side-nav a.active { box-shadow: inset 3px 0 0 #a3abb9; }

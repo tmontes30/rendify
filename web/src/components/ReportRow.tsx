@@ -4,6 +4,7 @@ import {
   EDITABLE_STATUSES,
   formatMoney,
   formatTotals,
+  resubmissionInfo,
   type Approval,
   type Category,
   type Flow,
@@ -51,12 +52,16 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
   const isOwner = report.ownerUid === profile.uid;
   const canEdit = isOwner && EDITABLE_STATUSES.includes(report.status);
   const canDecide = !isOwner && report.status === 'pending' && report.currentApprovers.includes(profile.uid);
+  const resub = resubmissionInfo(report);
 
   return (
     <div className={`report-card${open ? ' open' : ''}`}>
       <button className="report-item" onClick={toggle} aria-expanded={open}>
         <div className="report-main">
-          <div className="strong">{report.title}</div>
+          <div className="row tight">
+            <span className="strong report-title">{report.title}</span>
+            {resub.round > 1 && <span className="badge resent">↻ {resub.round}° envío</span>}
+          </div>
           <div className="muted small">{subtitle}</div>
         </div>
         <StatusBadge status={report.status} />
@@ -70,6 +75,7 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
           {!data && !error && <p className="muted small">Cargando…</p>}
           {data && (
             <>
+              {resub.lastRejection && report.status !== 'rejected' && <ResubmittedNotice info={resub} owner={report.ownerName} />}
               <Progress report={report} flow={data.flow} />
               <ItemsMini items={data.items} categories={data.categories} />
               <div className="row detail-actions">
@@ -87,6 +93,20 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Aviso de que la rendición fue rechazada antes y se reenvió corregida. */
+export function ResubmittedNotice({ info, owner }: { info: ReturnType<typeof resubmissionInfo>; owner: string }) {
+  if (!info.lastRejection) return null;
+  const r = info.lastRejection;
+  return (
+    <div className="resent-notice">
+      <div className="strong">↻ Reenviada con corrección ({info.round}° envío)</div>
+      <div className="small">
+        La rechazó <b>{r.by}</b> ({r.levelName}){r.comment ? <> por: <i>“{r.comment}”</i></> : null}. {owner} la corrigió y la volvió a enviar.
+      </div>
     </div>
   );
 }

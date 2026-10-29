@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import type { Report } from '@rendiciones/shared';
+import { resubmissionInfo, type Report } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listApproverHistory, listPendingForMe } from '../data';
 import { ReportRow } from '../components/ReportRow';
@@ -21,18 +21,20 @@ export function Approvals() {
     listApproverHistory(company.id, profile.uid).then(setHistory, () => setHistory([]));
   }, [company.id, profile.uid]);
 
-  const list = tab === 'pending' ? pending : history;
+  const resent = (pending ?? []).filter((r) => resubmissionInfo(r).round > 1);
+  const fresh = (pending ?? []).filter((r) => resubmissionInfo(r).round === 1);
+  const sub = (r: Report) => `${r.ownerName} · ${r.itemCount} gasto(s) · enviada ${fmtDate(r.submittedAt)}`;
 
   return (
     <div className="stack">
       <div className="page-header">
         <div>
           <h1>Por aprobar</h1>
-          <p className="muted page-sub">Rendiciones de tu equipo que esperan tu revisión.</p>
+          <p className="muted page-sub">Rendiciones que esperan tu revisión. Ábrelas para ver el detalle y decidir.</p>
         </div>
       </div>
       {flash === 'approved' && <div className="alert ok">✓ Rendición aprobada.</div>}
-      {flash === 'rejected' && <div className="alert ok">Rendición rechazada y devuelta al trabajador.</div>}
+      {flash === 'rejected' && <div className="alert ok">Rendición rechazada y devuelta al trabajador con tu comentario.</div>}
       {error && <div className="alert error">{error}</div>}
 
       <div className="card">
@@ -44,17 +46,57 @@ export function Approvals() {
             Ya revisadas
           </button>
         </nav>
-        {!list ? (
-          <p className="muted">Cargando…</p>
-        ) : list.length === 0 ? (
-          <div className="empty muted">{tab === 'pending' ? 'No tienes rendiciones pendientes. 🎉' : 'Aún no has revisado rendiciones.'}</div>
-        ) : (
-          <div className="report-list">
-            {list.map((r) => (
-              <ReportRow key={r.id} report={r} subtitle={`${r.ownerName} · ${r.itemCount} gasto(s) · enviada ${fmtDate(r.submittedAt)}`} />
-            ))}
-          </div>
-        )}
+
+        {tab === 'pending' &&
+          (!pending ? (
+            <p className="muted">Cargando…</p>
+          ) : pending.length === 0 ? (
+            <div className="empty muted">No tienes rendiciones pendientes. 🎉</div>
+          ) : (
+            <div className="stack">
+              {resent.length > 0 && (
+                <section>
+                  <h3 className="group-title">
+                    <span className="badge resent">↻ Reenviadas con corrección</span>
+                    <span className="muted small">Las rechazaron antes y el trabajador las corrigió.</span>
+                  </h3>
+                  <div className="report-list">
+                    {resent.map((r) => (
+                      <ReportRow key={r.id} report={r} subtitle={sub(r)} />
+                    ))}
+                  </div>
+                </section>
+              )}
+              {fresh.length > 0 && (
+                <section>
+                  {resent.length > 0 && (
+                    <h3 className="group-title">
+                      <span className="badge info">Nuevas</span>
+                      <span className="muted small">Primer envío.</span>
+                    </h3>
+                  )}
+                  <div className="report-list">
+                    {fresh.map((r) => (
+                      <ReportRow key={r.id} report={r} subtitle={sub(r)} />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          ))}
+
+        {tab === 'history' &&
+          (!history ? (
+            <p className="muted">Cargando…</p>
+          ) : history.length === 0 ? (
+            <div className="empty muted">Aún no has revisado rendiciones.</div>
+          ) : (
+            <div className="report-list">
+              {history.map((r) => (
+                <ReportRow key={r.id} report={r} subtitle={sub(r)} />
+              ))}
+            </div>
+          ))}
       </div>
     </div>
   );

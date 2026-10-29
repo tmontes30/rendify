@@ -245,6 +245,38 @@ export function startLevel(levels: FlowLevel[], uid: string): number {
   return 0;
 }
 
+export interface Resubmission {
+  /** Número de envío actual (1 = primer envío). */
+  round: number;
+  /** Último rechazo previo (por un aprobador o por administración). */
+  lastRejection: { by: string; levelName: string; comment: string } | null;
+}
+
+/** Indica si la rendición fue rechazada antes y reenviada con corrección. */
+export function resubmissionInfo(r: {
+  approvals: Approval[];
+  status: Status;
+  ownerReview?: { comment: string; decision: string } | null;
+}): Resubmission {
+  const rejections = r.approvals.filter((a) => a.decision === 'rejected');
+  const ownerRejected = r.ownerReview?.decision === 'rejected';
+  const count = rejections.length + (ownerRejected ? 1 : 0);
+  // Si está rechazada ahora, ese rechazo no cuenta como "previo".
+  const previous = r.status === 'rejected' ? count - 1 : count;
+  const last = rejections[rejections.length - 1];
+  return {
+    round: Math.max(previous, 0) + 1,
+    lastRejection:
+      previous <= 0
+        ? null
+        : ownerRejected && !last
+          ? { by: 'Administración', levelName: 'Aprobación final', comment: r.ownerReview!.comment }
+          : last
+            ? { by: last.name, levelName: last.levelName, comment: last.comment }
+            : null,
+  };
+}
+
 // ---------- Validaciones para la app de administración ----------
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const id = z.string().min(1).max(64);
