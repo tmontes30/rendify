@@ -28,6 +28,8 @@ interface AuthCtx {
   login: (email: string, password: string, remember: boolean) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  /** Vuelve a leer el perfil (p. ej. tras cambiar el nombre). */
+  refresh: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -79,6 +81,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     logout: () => signOut(auth),
     resetPassword: (email) => sendPasswordResetEmail(auth, email.trim()),
+    async refresh() {
+      const user = auth.currentUser;
+      if (!user) return;
+      const s = await loadSession(user);
+      setState(s ? { status: 'ready', ...s } : { status: 'noAccess', user });
+    },
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

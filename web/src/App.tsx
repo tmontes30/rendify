@@ -8,6 +8,7 @@ import { ReportPage } from './pages/ReportPage';
 import { ReportEditor, type RowState } from './pages/ReportEditor';
 import { Approvals } from './pages/Approvals';
 import { BulkUpload } from './pages/BulkUpload';
+import { Profile } from './pages/Profile';
 
 /** Nueva rendición; puede venir con gastos precargados desde la carga masiva. */
 function NewReport() {
@@ -26,6 +27,7 @@ function Routed() {
         <Route path="/" element={<MyReports />} />
         <Route path="/nueva" element={<NewReport />} />
         <Route path="/carga-masiva" element={<BulkUpload />} />
+        <Route path="/perfil" element={<Profile />} />
         <Route path="/r/:id" element={<ReportPage />} />
         {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -56,13 +56,15 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </nav>
         <div className="sidebar-user">
-          <div className="avatar" aria-hidden="true">{initials}</div>
-          <div className="user-meta">
-            <div className="strong small">{profile.displayName}</div>
-            <div className="muted small">{areaName}</div>
-          </div>
-          <button className="icon-btn" onClick={() => void logout()} title="Cerrar sesión" aria-label="Cerrar sesión">
-            ⎋
+          <NavLink to="/perfil" className="user-link" title="Mi perfil">
+            <div className="avatar" aria-hidden="true">{initials}</div>
+            <div className="user-meta">
+              <div className="strong small">{profile.displayName}</div>
+              <div className="muted small">Mi perfil · {areaName}</div>
+            </div>
+          </NavLink>
+          <button className="logout-btn" onClick={() => void logout()} title="Cerrar sesión">
+            Salir
           </button>
         </div>
         {useEmulator && <span className="badge pending sidebar-foot">EMULADOR</span>}

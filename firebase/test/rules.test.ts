@@ -95,10 +95,20 @@ describe('aislamiento', () => {
   it('usuario deshabilitado no accede', async () => {
     await assertFails(getDoc(doc(fs(u.disabled), 'companies', A)));
   });
-  it('nadie escribe catálogos, flujos ni perfiles', async () => {
+  it('nadie escribe catálogos, flujos ni datos sensibles del perfil', async () => {
     await assertFails(setDoc(doc(fs(u.boss), 'companies', A, 'flows', 'f2'), FLOW));
     await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { flowId: 'x' }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { companyId: B }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { isApprover: true }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { displayName: 'Ana', active: true, areaId: 'x' }));
     await assertFails(getDoc(doc(fs(u.worker), 'users', u.boss.uid)));
+  });
+
+  it('cada uno cambia solo su propio nombre', async () => {
+    await assertSucceeds(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { displayName: 'Ana María Trabajadora' }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker2.uid), { displayName: 'Hack' }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { displayName: '' }));
+    await assertFails(updateDoc(doc(fs(u.disabled), 'users', u.disabled.uid), { displayName: 'Volví' }));
   });
 });
 

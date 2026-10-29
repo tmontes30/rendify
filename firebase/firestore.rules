@@ -52,7 +52,15 @@ service cloud.firestore {
     // ---------- Perfil propio ----------
     match /users/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
+      // Cada usuario activo puede cambiar solo su propio nombre. Empresa, área,
+      // flujo, estado y rol de aprobador los define únicamente el owner.
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && resource.data.active == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])
+        && str(request.resource.data.displayName, 1, 100)
+        && request.resource.data.displayName.trim() == request.resource.data.displayName;
+      allow create, delete: if false;
     }
 
     // ---------- Empresa ----------
