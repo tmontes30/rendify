@@ -1,0 +1,31 @@
+{
+  "name": "@rendiciones/admin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ui": "vite build",
+    "start": "vite build && tsx server/index.ts",
+    "start:emu": "vite build && tsx server/index.ts --emulator",
+    "dev:server": "tsx watch server/index.ts --emulator --no-open --dev",
+    "dev:ui": "vite",
+    "seed:emu": "tsx server/seed-emulator.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@rendiciones/shared": "*",
+    "express": "^4.21.1",
+    "firebase-admin": "^12.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "tsx": "^4.19.2",
+    "vite": "^5.4.10"
+  }
+}

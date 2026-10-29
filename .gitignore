@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.emulator
+!.env.example
+
+# NUNCA subir credenciales de Firebase Admin
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+secrets/
+
+# Emuladores
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+emulator-data/
+
+# Configuración local de la app del owner
+admin/config.local.json

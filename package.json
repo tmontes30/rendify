@@ -1,0 +1,29 @@
+{
+  "name": "rendiciones",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Herramienta interna de rendición de gastos (Firebase + GitHub Pages)",
+  "workspaces": [
+    "shared",
+    "web",
+    "admin",
+    "firebase"
+  ],
+  "scripts": {
+    "web:dev": "npm run dev -w web",
+    "web:build": "npm run build -w web",
+    "admin": "npm run start -w admin",
+    "admin:emu": "npm run start:emu -w admin",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-rendiciones",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-rendiciones \"npm run test -w firebase\"",
+    "deploy:rules": "firebase deploy --only firestore",
+    "typecheck": "npm run typecheck -w web && npm run typecheck -w admin"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.24.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,195 @@
+rules_version = '2';
+
+// Reglas de seguridad para la web pública (trabajadores y jefes de área).
+// La app local del owner usa el Admin SDK y NO pasa por estas reglas.
+// Principio: todo lo que no esté explícitamente permitido está denegado.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function token() {
+      return request.auth.token;
+    }
+
+    function myProfilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // Usuario con rol asignado por el owner (custom claims) y cuenta activa.
+    // El perfil users/{uid} (escrito solo por el owner) debe coincidir con los
+    // claims del token: así deshabilitar o cambiar rol/área corta el acceso
+    // de inmediato, sin esperar a que expire el token (1h).
+    function hasRole() {
+      return signedIn()
+        && token().role in ['worker', 'manager']
+        && token().areaId is string
+        && exists(myProfilePath())
+        && get(myProfilePath()).data.active == true
+        && get(myProfilePath()).data.role == token().role
+        && get(myProfilePath()).data.areaId == token().areaId;
+    }
+
+    function isManager() {
+      return hasRole() && token().role == 'manager';
+    }
+
+    function myArea() {
+      return token().areaId;
+    }
+
+    function str(v, min, max) {
+      return v is string && v.size() >= min && v.size() <= max;
+    }
+
+    function isDate(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Debe coincidir con CURRENCY_CODES en shared/src/index.ts
+    function currencies() {
+      return ['CLP', 'USD', 'EUR', 'ARS', 'PEN', 'BRL', 'MXN', 'COP'];
+    }
+
+    // ---------- Catálogos (solo lectura desde la web) ----------
+    match /areas/{areaId} {
+      allow read: if hasRole();
+      allow write: if false;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if hasRole();
+      allow write: if false;
+    }
+
+    // ---------- Perfiles (escritos solo por el owner) ----------
+    match /users/{uid} {
+      allow read: if hasRole()
+        && (request.auth.uid == uid
+            || (isManager() && resource.data.areaId == myArea()));
+      allow write: if false;
+    }
+
+    // ---------- Rendiciones ----------
+    match /reports/{reportId} {
+
+      function reportFields(d) {
+        return str(d.title, 1, 120)
+          && isDate(d.periodFrom)
+          && isDate(d.periodTo)
+          && d.periodFrom <= d.periodTo
+          && d.totals is map
+          && d.totals.keys().hasOnly(currencies())
+          && d.itemCount is int
+          && d.itemCount >= 0
+          && d.itemCount <= 200;
+      }
+
+      function isOwner() {
+        return hasRole() && resource.data.ownerUid == request.auth.uid;
+      }
+
+      allow read: if hasRole()
+        && (resource.data.ownerUid == request.auth.uid
+            || (isManager() && resource.data.areaId == myArea()));
+
+      allow create: if hasRole()
+        && request.resource.data.keys().hasOnly([
+             'ownerUid', 'ownerName', 'areaId', 'title', 'periodFrom', 'periodTo',
+             'status', 'totals', 'itemCount', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll([
+             'ownerUid', 'ownerName', 'areaId', 'title', 'periodFrom', 'periodTo',
+             'status', 'totals', 'itemCount', 'createdAt', 'updatedAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerName == get(myProfilePath()).data.displayName
+        && request.resource.data.areaId == myArea()
+        && request.resource.data.status == 'draft'
+        && request.resource.data.itemCount == 0
+        && request.resource.data.totals.size() == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && reportFields(request.resource.data);
+
+      // El dueño edita (o envía) mientras esté en borrador o rechazada.
+      allow update: if isOwner()
+        && resource.data.status in ['draft', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'title', 'periodFrom', 'periodTo', 'status', 'totals', 'itemCount',
+             'updatedAt', 'submittedAt'])
+        && (request.resource.data.status == resource.data.status
+            || request.resource.data.status == 'submitted')
+        && request.resource.data.updatedAt == request.time
+        && reportFields(request.resource.data)
+        && (request.resource.data.status != 'submitted'
+            || (request.resource.data.submittedAt == request.time
+                && request.resource.data.itemCount > 0));
+
+      // El jefe de área aprueba o rechaza rendiciones enviadas de su área (no las propias).
+      allow update: if isManager()
+        && resource.data.areaId == myArea()
+        && resource.data.ownerUid != request.auth.uid
+        && resource.data.status == 'submitted'
+        && request.resource.data.status in ['manager_approved', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'managerReview', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.managerReview is map
+        && request.resource.data.managerReview.keys().hasOnly(['uid', 'name', 'at', 'comment'])
+        && request.resource.data.managerReview.uid == request.auth.uid
+        && request.resource.data.managerReview.name == get(myProfilePath()).data.displayName
+        && request.resource.data.managerReview.at == request.time
+        && str(request.resource.data.managerReview.comment, 0, 500)
+        && (request.resource.data.status != 'rejected'
+            || request.resource.data.managerReview.comment.size() > 0);
+
+      allow delete: if isOwner() && resource.data.status == 'draft';
+
+      // ---------- Ítems (gastos) de la rendición ----------
+      match /items/{itemId} {
+        function parent() {
+          return get(/databases/$(database)/documents/reports/$(reportId)).data;
+        }
+
+        function parentEditableByMe() {
+          return hasRole()
+            && parent().ownerUid == request.auth.uid
+            && parent().status in ['draft', 'rejected'];
+        }
+
+        function validItem(d) {
+          return d.keys().hasOnly([
+                   'date', 'categoryId', 'description', 'vendor', 'docType',
+                   'docNumber', 'amount', 'currency'])
+            && d.keys().hasAll([
+                   'date', 'categoryId', 'description', 'vendor', 'docType',
+                   'docNumber', 'amount', 'currency'])
+            && isDate(d.date)
+            && str(d.categoryId, 1, 64)
+            && get(/databases/$(database)/documents/categories/$(d.categoryId)).data.active == true
+            && str(d.description, 1, 500)
+            && str(d.vendor, 0, 120)
+            && d.docType in ['boleta', 'factura', 'otro']
+            && str(d.docNumber, 0, 40)
+            && d.amount is int
+            && d.amount > 0
+            && d.amount <= 1000000000000
+            && d.currency in currencies();
+        }
+
+        allow read: if hasRole()
+          && (parent().ownerUid == request.auth.uid
+              || (isManager() && parent().areaId == myArea()));
+
+        allow create, update: if parentEditableByMe() && validItem(request.resource.data);
+
+        allow delete: if parentEditableByMe();
+      }
+    }
+
+    // Cualquier otra colección: denegada.
+  }
+}
