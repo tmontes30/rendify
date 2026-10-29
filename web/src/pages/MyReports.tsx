@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { STATUS_LABELS, formatTotals, type Report, type Status } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listMyReports } from '../data';
-import { StatusBadge } from '../components/StatusBadge';
+import { ReportRow } from '../components/ReportRow';
 
 const FILTERS: { key: Status | ''; label: string }[] = [
   { key: '', label: 'Todas' },
@@ -76,16 +76,7 @@ export function MyReports() {
         ) : (
           <div className="report-list">
             {shown.map((r) => (
-              <button key={r.id} className="report-item" onClick={() => navigate(`/r/${r.id}`)}>
-                <div className="report-main">
-                  <div className="strong">{r.title}</div>
-                  <div className="muted small">
-                    {r.itemCount} gasto(s) · {r.periodFrom} → {r.periodTo} · actualizada {fmtDate(r.updatedAt)}
-                  </div>
-                </div>
-                <StatusBadge status={r.status} />
-                <div className="report-amount">{formatTotals(r.totals)}</div>
-              </button>
+              <ReportRow key={r.id} report={r} subtitle={`${r.itemCount} gasto(s) · ${r.periodFrom} → ${r.periodTo} · actualizada ${fmtDate(r.updatedAt)}`} />
             ))}
           </div>
         )}

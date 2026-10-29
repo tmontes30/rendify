@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { formatTotals, type Report } from '@rendiciones/shared';
+import { useLocation } from 'react-router-dom';
+import type { Report } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listApproverHistory, listPendingForMe } from '../data';
-import { StatusBadge } from '../components/StatusBadge';
+import { ReportRow } from '../components/ReportRow';
 
 export function Approvals() {
   const { profile, company } = useSession();
-  const navigate = useNavigate();
   const flash = (useLocation().state as { flash?: string } | null)?.flash;
   const [tab, setTab] = useState<'pending' | 'history'>('pending');
   const [pending, setPending] = useState<Report[] | null>(null);
@@ -52,16 +51,7 @@ export function Approvals() {
         ) : (
           <div className="report-list">
             {list.map((r) => (
-              <button key={r.id} className="report-item" onClick={() => navigate(`/r/${r.id}`)}>
-                <div className="report-main">
-                  <div className="strong">{r.title}</div>
-                  <div className="muted small">
-                    {r.ownerName} · {r.itemCount} gasto(s) · enviada {fmtDate(r.submittedAt)}
-                  </div>
-                </div>
-                <StatusBadge status={r.status} />
-                <div className="report-amount">{formatTotals(r.totals)}</div>
-              </button>
+              <ReportRow key={r.id} report={r} subtitle={`${r.ownerName} · ${r.itemCount} gasto(s) · enviada ${fmtDate(r.submittedAt)}`} />
             ))}
           </div>
         )}
