@@ -100,7 +100,7 @@ export function Users() {
                       <span className={`badge ${enabled ? 'approved' : 'rejected'}`}>{enabled ? 'Activo' : 'Deshabilitado'}</span>
                     </td>
                     <td className="num">
-                      {!u.orphan && <button className="link" onClick={() => setEditing(u)}>Editar</button>}
+                      <button className="link" onClick={() => setEditing(u)}>{u.orphan ? 'Asignar a empresa' : 'Editar'}</button>
                       <button className="link" onClick={() => toggle(u)}>{enabled ? 'Deshabilitar' : 'Habilitar'}</button>
                     </td>
                   </tr>
@@ -129,6 +129,7 @@ export function Users() {
 function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow | null; defaultCompany: string; onClose: () => void; onSaved: () => void }) {
   const { companies } = useCompany();
   const isNew = !user;
+  const isOrphan = !!user?.orphan;
   const [companyId, setCompanyId] = useState(user?.companyId ?? defaultCompany);
   const { areas, flows } = useCatalog(companyId);
   const [email, setEmail] = useState(user?.email ?? '');
@@ -154,6 +155,10 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
         await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, password });
         setCreated({ email, password });
         return;
+      }
+      if (isOrphan) {
+        await api.post(`/users/${user!.uid}/profile`, { displayName, companyId, areaId: effectiveArea, flowId: flowId || null });
+        return onSaved();
       }
       await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null });
       if (password) await api.post(`/users/${user!.uid}/password`, { password });
@@ -189,11 +194,11 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   }
 
   return (
-    <Modal title={isNew ? 'Nuevo usuario' : 'Editar usuario'} onClose={onClose}>
+    <Modal title={isNew ? 'Nuevo usuario' : isOrphan ? 'Asignar a empresa' : 'Editar usuario'} onClose={onClose}>
       <form onSubmit={save}>
         <div className="field">
           <label htmlFor="uc">Empresa</label>
-          <select id="uc" value={companyId} disabled={!isNew} onChange={(e) => { setCompanyId(e.target.value); setAreaId(''); setFlowId(''); }}>
+          <select id="uc" value={companyId} disabled={!isNew && !isOrphan} onChange={(e) => { setCompanyId(e.target.value); setAreaId(''); setFlowId(''); }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
@@ -224,14 +229,14 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
           Para que alguien <b>apruebe</b>, agrégalo como aprobador dentro de un flujo (sección “Flujos de aprobación”). Puedes crear primero
           a los aprobadores y después los flujos.
         </p>
-        <div className="field">
+        {!isOrphan && <div className="field">
           <label htmlFor="pw">{isNew ? 'Contraseña temporal' : 'Nueva contraseña (opcional)'}</label>
           <div className="row nowrap">
             <input id="pw" minLength={10} required={isNew} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
             <button type="button" onClick={() => setPassword(generatePassword())}>Generar</button>
           </div>
-        </div>
-        {!isNew && (
+        </div>}
+        {!isNew && !isOrphan && (
           <div className="field">
             <button type="button" className="link" onClick={makeResetLink}>Generar enlace para que cree su contraseña</button>
             {resetLink && (

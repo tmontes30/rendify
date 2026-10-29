@@ -345,6 +345,33 @@ api.post(
   }),
 );
 
+/** Asigna empresa, área y flujo a una cuenta existente que no tiene perfil. */
+api.post(
+  '/users/:uid/profile',
+  h(async (req, res) => {
+    const body = parse(createUserSchema.omit({ email: true, password: true }), req.body);
+    if ((await db.collection('users').doc(req.params.uid).get()).exists) throw new HttpError(409, 'Esta cuenta ya tiene perfil.');
+    await assertCompany(body.companyId);
+    await assertRefs(body.companyId, body.areaId, body.flowId);
+    const user = await auth.getUser(req.params.uid);
+    await auth.updateUser(user.uid, { displayName: body.displayName });
+    await auth.setCustomUserClaims(user.uid, { companyId: body.companyId });
+    await db.collection('users').doc(user.uid).set({
+      email: user.email ?? '',
+      displayName: body.displayName,
+      companyId: body.companyId,
+      areaId: body.areaId,
+      flowId: body.flowId,
+      isApprover: false,
+      active: !user.disabled,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    await auth.revokeRefreshTokens(user.uid); // fuerza a tomar la empresa nueva
+    invalidate();
+    res.json({ ok: true });
+  }),
+);
+
 api.patch(
   '/users/:uid',
   h(async (req, res) => {
