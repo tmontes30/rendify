@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth, useSession } from '../auth';
 import { listPendingForMe } from '../data';
@@ -27,13 +27,13 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">
+        <Link to="/" className="sidebar-brand" title="Ir al inicio">
           <Logo />
           <div>
             <div className="brand-name">Rendiciones</div>
             <div className="brand-sub">{company.name}</div>
           </div>
-        </div>
+        </Link>
         <nav className="side-nav">
           <NavLink to="/" end>
             <span className="nav-icon" aria-hidden="true">☰</span>

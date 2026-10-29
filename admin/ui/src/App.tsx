@@ -84,13 +84,21 @@ export function App() {
     <CompanyContext.Provider value={{ companies, companyId, setCompanyId, reloadCompanies, companyName, webUrl: session.webUrl, goTo: setPage }}>
       <div className="shell admin-shell">
         <aside className="sidebar">
-          <div className="sidebar-brand">
+          <a
+            href="#"
+            className="sidebar-brand"
+            title="Ir al inicio"
+            onClick={(e) => {
+              e.preventDefault();
+              setPage('panel');
+            }}
+          >
             <Logo variant="admin" />
             <div>
               <div className="brand-name">Rendiciones</div>
               <div className="brand-sub">Panel owner</div>
             </div>
-          </div>
+          </a>
           <div className="sidebar-company">
             <label htmlFor="company">Empresa</label>
             <select id="company" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>

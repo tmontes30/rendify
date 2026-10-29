@@ -134,7 +134,11 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
   );
 }
 
+let keySeq = 0;
+const newKey = () => `lvl${++keySeq}`;
+
 interface LevelDraft {
+  key: string;
   name: string;
   minText: string;
   approvers: string[];
@@ -152,32 +156,38 @@ function FlowModal({
   onSaved: (assigned: number) => void;
 }) {
   const [name, setName] = useState(flow?.name ?? '');
+  // Se guardan en orden de la cadena (índice 0 = primero en revisar), pero se
+  // muestran al revés: arriba el más importante (aprobación final).
   const [levels, setLevels] = useState<LevelDraft[]>(
-    flow?.levels.map((l) => ({ name: l.name, minText: l.minAmount ? fromMinor(l.minAmount, base) : '', approvers: l.approvers })) ?? [
-      { name: 'Jefe directo', minText: '', approvers: [] },
+    flow?.levels.map((l) => ({ key: newKey(), name: l.name, minText: l.minAmount ? fromMinor(l.minAmount, base) : '', approvers: l.approvers })) ?? [
+      { key: newKey(), name: '', minText: '', approvers: [] },
     ],
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const update = (i: number, patch: Partial<LevelDraft>) => setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  /** d = +1 sube en pantalla (más importante, más tarde en la cadena). */
   const move = (i: number, d: -1 | 1) =>
     setLevels((ls) => {
       const n = [...ls];
       [n[i], n[i + d]] = [n[i + d], n[i]];
       return n;
     });
+  // Agregar nivel = uno menos importante, que revisa antes (va al inicio de la cadena).
+  const addLower = () => setLevels((ls) => [{ key: newKey(), name: '', minText: '', approvers: [] }, ...ls]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
     setError(null);
     const out = [];
     for (const [i, l] of levels.entries()) {
-      if (!l.approvers.length) return setError(`El nivel ${i + 1} no tiene aprobadores.`);
+      const label = l.name || `Nivel ${i + 1}`;
+      if (!l.approvers.length) return setError(`"${label}" no tiene aprobadores.`);
       let minAmount = 0;
       if (i > 0 && l.minText.trim()) {
         const v = toMinor(l.minText, base);
-        if (v == null) return setError(`Monto mínimo inválido en el nivel ${i + 1}.`);
+        if (v == null) return setError(`Monto mínimo inválido en "${label}".`);
         minAmount = v;
       }
       out.push({ name: l.name, minAmount, approvers: l.approvers });
@@ -195,6 +205,9 @@ function FlowModal({
     }
   }
 
+  const display = levels.map((l, i) => ({ l, i })).reverse();
+  const last = levels.length - 1;
+
   return (
     <Modal title={flow ? 'Editar flujo' : 'Nuevo flujo de aprobación'} onClose={onClose} wide>
       <form onSubmit={save}>
@@ -203,45 +216,53 @@ function FlowModal({
           <input id="fn" required maxLength={100} placeholder="Ej: Ventas estándar" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <p className="hint">
-          Las personas que agregues como aprobadores y no tengan flujo quedan asignadas a este; sus propias rendiciones parten en el nivel
-          siguiente al suyo (las del último nivel las apruebas tú). La rendición pasa por los niveles en orden. En cada nivel basta con que <b>uno</b> de los aprobadores apruebe. Los niveles con
-          monto mínimo solo se activan si el total de la rendición lo alcanza (en {base}); si tiene gastos en otras monedas, se activan
-          siempre.
+          Arma el flujo <b>de arriba hacia abajo, del más importante al menos importante</b>: el de arriba da la aprobación final y cada
+          “Agregar nivel” suma uno debajo que revisa antes. En cada nivel basta con que <b>uno</b> de los aprobadores apruebe. Los niveles con
+          monto mínimo solo se activan si el total alcanza ese monto (en {base}); con gastos en otras monedas se activan siempre. Los
+          aprobadores sin flujo quedan asignados a este, y sus propias rendiciones parten en el nivel de arriba del suyo (las del nivel
+          final las apruebas tú).
         </p>
         <div className="stack">
-          {levels.map((l, i) => (
-            <div key={i} className="card level-card">
-              <div className="row spread">
-                <strong>Nivel {i + 1}</strong>
-                <div className="row">
-                  <button type="button" className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">↑</button>
-                  <button type="button" className="icon-btn" disabled={i === levels.length - 1} onClick={() => move(i, 1)} aria-label="Bajar">↓</button>
-                  <button type="button" className="icon-btn" disabled={levels.length === 1} onClick={() => setLevels((ls) => ls.filter((_, j) => j !== i))} aria-label="Quitar nivel">✕</button>
+          {display.map(({ l, i }, pos) => (
+            <div key={l.key}>
+              {pos > 0 && <div className="level-link" aria-hidden="true">↑ luego pasa a</div>}
+              <div className="card level-card">
+                <div className="row spread">
+                  <div className="row tight">
+                    <strong>Nivel {i + 1} de {levels.length}</strong>
+                    {i === last && <span className="badge approved">Aprobación final</span>}
+                    {i === 0 && levels.length > 1 && <span className="badge info">Primero en revisar</span>}
+                  </div>
+                  <div className="row">
+                    <button type="button" className="icon-btn" disabled={i === last} onClick={() => move(i, 1)} aria-label="Subir (más importante)" title="Más importante">↑</button>
+                    <button type="button" className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Bajar (menos importante)" title="Menos importante">↓</button>
+                    <button type="button" className="icon-btn" disabled={levels.length === 1} onClick={() => setLevels((ls) => ls.filter((_, j) => j !== i))} aria-label="Quitar nivel">✕</button>
+                  </div>
                 </div>
+                <div className="form-grid">
+                  <div className="field">
+                    <label>Nombre del nivel</label>
+                    <input required maxLength={100} value={l.name} onChange={(e) => update(i, { name: e.target.value })} placeholder={i === last ? 'Ej: Gerente general' : 'Ej: Jefe de área'} />
+                  </div>
+                  <div className="field">
+                    <label>Activar si el total es ≥ ({base})</label>
+                    <input
+                      disabled={i === 0}
+                      inputMode="decimal"
+                      placeholder={i === 0 ? 'Siempre (es el primero en revisar)' : 'Vacío = siempre'}
+                      value={i === 0 ? '' : l.minText}
+                      onChange={(e) => update(i, { minText: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <ApproverPicker users={users} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
               </div>
-              <div className="form-grid">
-                <div className="field">
-                  <label>Nombre del nivel</label>
-                  <input required maxLength={100} value={l.name} onChange={(e) => update(i, { name: e.target.value })} placeholder="Ej: Gerente de área" />
-                </div>
-                <div className="field">
-                  <label>Activar si el total es ≥ ({base})</label>
-                  <input
-                    disabled={i === 0}
-                    inputMode="decimal"
-                    placeholder={i === 0 ? 'Siempre (primer nivel)' : 'Vacío = siempre'}
-                    value={i === 0 ? '' : l.minText}
-                    onChange={(e) => update(i, { minText: e.target.value })}
-                  />
-                </div>
-              </div>
-              <ApproverPicker users={users} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
             </div>
           ))}
         </div>
         {levels.length < LIMITS.maxLevels && (
-          <button type="button" style={{ marginTop: 12 }} onClick={() => setLevels((ls) => [...ls, { name: '', minText: '', approvers: [] }])}>
-            + Agregar nivel
+          <button type="button" style={{ marginTop: 12 }} onClick={addLower}>
+            + Agregar nivel debajo (revisa antes)
           </button>
         )}
         {error && <div className="alert error" style={{ marginTop: 12 }}>{error}</div>}
