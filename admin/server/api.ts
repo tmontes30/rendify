@@ -1344,10 +1344,15 @@ api.get(
     push({
       id: 'notices',
       severity: 'critical',
-      title: 'Avisos por correo sin enviar',
-      detail: `${notices.payer.length} a quien paga · ${notices.approvers.length} a aprobadores (+24 h) · ${notices.paid.length} de pagos a trabajadores`,
+      title: 'Rendiciones: avisos por correo sin enviar',
+      detail: `Sobre los gastos de los trabajadores: ${notices.payer.length} a quien paga · ${notices.approvers.length} a aprobadores (+24 h) · ${notices.paid.length} de pago a trabajadores`,
       count: notices.payer.length + notices.approvers.length + notices.paid.length,
       page: 'notificaciones',
+      items: [
+        ...notices.payer.map((n) => `💳 Avisar a ${n.to.join(', ') || 'quien paga (sin definir)'}: ${n.companyName} · ${n.title} de ${n.ownerName}`),
+        ...notices.approvers.map((n) => `⏰ Avisar a ${n.to.join(' o ')}: ${n.companyName} · ${n.title} de ${n.ownerName}`),
+        ...notices.paid.map((n) => `✅ Avisar a ${n.ownerName} que se pagó: ${n.companyName} · ${n.title}`),
+      ],
     });
     push({
       id: 'ownerTurn',
@@ -1362,8 +1367,8 @@ api.get(
     push({
       id: 'billOverdue',
       severity: 'critical',
-      title: 'Mensualidades vencidas',
-      detail: 'Cobra, registra el pago o suspende el servicio.',
+      title: 'Tu servicio: mensualidades vencidas',
+      detail: 'Empresas clientes que no te han pagado. Cobra, registra el pago o suspende el servicio.',
       count: overdueBills.length,
       page: 'empresas',
       items: overdueBills.map((b) => `${b.companyName}: vencida hace ${-(b.daysLeft ?? 0)} día(s)${b.active ? '' : ' (suspendida)'}`),
@@ -1372,8 +1377,8 @@ api.get(
     push({
       id: 'billSoon',
       severity: 'warning',
-      title: 'Mensualidades por vencer (≤ 5 días)',
-      detail: 'Envía el recordatorio de cobro.',
+      title: 'Tu servicio: mensualidades por vencer (≤ 5 días)',
+      detail: 'Empresas clientes que deben pagarte pronto. Envía el recordatorio de cobro.',
       count: soonBills.length,
       page: 'notificaciones',
       items: soonBills.map((b) => `${b.companyName}: vence en ${b.daysLeft} día(s)`),
@@ -1443,7 +1448,7 @@ api.get(
     push({
       id: 'noBilling',
       severity: 'info',
-      title: 'Empresas sin fecha de facturación',
+      title: 'Tu servicio: empresas sin fecha de facturación',
       detail: 'Define el vencimiento de la mensualidad para recibir alertas de cobro.',
       count: noBilling.length,
       page: 'empresas',
