@@ -28,12 +28,19 @@ service cloud.firestore {
 
     // Miembro activo de la empresa: el claim del token y el perfil (fuente de verdad)
     // deben coincidir. Deshabilitar o mover de empresa corta el acceso de inmediato.
-    function member(cid) {
+    function belongsTo(cid) {
       return request.auth != null
         && request.auth.token.companyId == cid
         && exists(profilePath())
         && profile().active == true
         && profile().companyId == cid;
+    }
+
+    // Miembro con servicio vigente: si el owner suspende la empresa (active == false),
+    // sus usuarios no pueden leer ni escribir nada (solo ver que está suspendida).
+    function member(cid) {
+      return belongsTo(cid)
+        && get(/databases/$(database)/documents/companies/$(cid)).data.active == true;
     }
 
     function str(v, min, max) {
@@ -65,7 +72,8 @@ service cloud.firestore {
 
     // ---------- Empresa ----------
     match /companies/{cid} {
-      allow read: if member(cid);
+      // Se puede leer aunque esté suspendida, para mostrar el aviso al usuario.
+      allow read: if belongsTo(cid);
       allow write: if false;
 
       function flowDoc(fid) {

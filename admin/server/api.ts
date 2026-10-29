@@ -123,7 +123,7 @@ api.get(
     const [snap, users] = await Promise.all([db.collection('companies').orderBy('name').get(), db.collection('users').get()]);
     const counts = new Map<string, number>();
     for (const u of users.docs) if (u.data().active) counts.set(u.data().companyId, (counts.get(u.data().companyId) ?? 0) + 1);
-    res.json(snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: tsToIso(d.data().createdAt), activeUsers: counts.get(d.id) ?? 0 })));
+    res.json(snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: tsToIso(d.data().createdAt), suspendedAt: tsToIso(d.data().suspendedAt), resumedAt: tsToIso(d.data().resumedAt), activeUsers: counts.get(d.id) ?? 0 })));
   }),
 );
 
@@ -145,6 +145,29 @@ api.patch(
     const body = parse(companySchema.partial(), req.body);
     await assertCompany(req.params.cid);
     await company(req.params.cid).update({ ...body });
+    invalidate();
+    res.json({ ok: true });
+  }),
+);
+
+/** Suspende el servicio de una empresa (p. ej. mensualidad impaga): sus usuarios pierden el acceso al instante. */
+api.post(
+  '/companies/:cid/suspend',
+  h(async (req, res) => {
+    await assertCompany(req.params.cid);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 200);
+    await company(req.params.cid).update({ active: false, suspendedAt: FieldValue.serverTimestamp(), suspendedReason: reason });
+    invalidate();
+    res.json({ ok: true });
+  }),
+);
+
+/** Reactiva el servicio: todo vuelve a funcionar tal como estaba. */
+api.post(
+  '/companies/:cid/resume',
+  h(async (req, res) => {
+    await assertCompany(req.params.cid);
+    await company(req.params.cid).update({ active: true, suspendedAt: FieldValue.delete(), suspendedReason: FieldValue.delete(), resumedAt: FieldValue.serverTimestamp() });
     invalidate();
     res.json({ ok: true });
   }),
@@ -314,19 +337,21 @@ async function assignFlowToApprovers(cid: string, fid: string, approvers: string
 }
 
 /**
- * Si cambia quién paga, actualiza quién puede ver las rendiciones ya enviadas de ese flujo
- * (approverUids): agrega al nuevo y quita al anterior si ya no participa en el flujo.
+ * Asegura que quien paga pueda ver las rendiciones ya enviadas del flujo (approverUids):
+ * agrega al payer actual y quita a un payer anterior que ya no participa en el flujo.
+ * Se ejecuta en cada guardado del flujo (idempotente).
  */
 async function syncReportViewers(cid: string, fid: string, oldPayer: string | null, flow: { payerUid: string | null; allApprovers: string[] }) {
-  if (oldPayer === flow.payerUid) return;
   const reports = await company(cid).collection('reports').where('flowId', '==', fid).get();
   let batch = db.batch();
   let n = 0;
   for (const r of reports.docs) {
     if (r.data().status === 'draft') continue;
-    let viewers = new Set<string>((r.data().approverUids as string[]) ?? []);
-    if (oldPayer && !flow.allApprovers.includes(oldPayer)) viewers.delete(oldPayer);
+    const before = (r.data().approverUids as string[]) ?? [];
+    const viewers = new Set(before);
+    if (oldPayer && oldPayer !== flow.payerUid && !flow.allApprovers.includes(oldPayer)) viewers.delete(oldPayer);
     if (flow.payerUid) viewers.add(flow.payerUid);
+    if (viewers.size === before.length && before.every((u) => viewers.has(u))) continue;
     batch.update(r.ref, { approverUids: [...viewers] });
     if (++n % 400 === 0) {
       await batch.commit();
@@ -334,6 +359,7 @@ async function syncReportViewers(cid: string, fid: string, oldPayer: string | nu
     }
   }
   await batch.commit();
+  return n;
 }
 
 /** Marca isApprover en los usuarios de la empresa según los flujos vigentes. */
@@ -361,7 +387,7 @@ api.post(
     const col = company(req.params.cid).collection('flows');
     const id = await uniqueId(col, flow.name);
     await col.doc(id).set(flow);
-    const assigned = await assignFlowToApprovers(req.params.cid, id, flow.allApprovers);
+    const assigned = await assignFlowToApprovers(req.params.cid, id, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
     res.status(201).json({ id, assigned });
@@ -377,7 +403,7 @@ api.put(
     const flow = await buildFlow(req.params.cid, req.body);
     await ref.set(flow);
     await syncReportViewers(req.params.cid, req.params.fid, previous?.payerUid ?? null, flow);
-    const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.allApprovers);
+    const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
     res.json({ ok: true, assigned });
@@ -964,7 +990,8 @@ interface NoticeItem {
  *  - ownerTurn: rendiciones que esperan la aprobación del owner.
  */
 async function computeNotices(onlyCid?: string) {
-  const companies = (await db.collection('companies').get()).docs.filter((c) => !onlyCid || c.id === onlyCid);
+  // Las empresas suspendidas no generan avisos.
+  const companies = (await db.collection('companies').get()).docs.filter((c) => (!onlyCid || c.id === onlyCid) && c.data().active !== false);
   const now = Date.now();
   const payer: NoticeItem[] = [];
   const approvers: NoticeItem[] = [];

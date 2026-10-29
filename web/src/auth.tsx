@@ -21,7 +21,12 @@ export interface Session {
   flow: Flow | null;
 }
 
-type AuthState = { status: 'loading' } | { status: 'signedOut' } | { status: 'noAccess'; user: User } | ({ status: 'ready' } & Session);
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'signedOut' }
+  | { status: 'noAccess'; user: User }
+  | { status: 'suspended'; user: User; companyName: string }
+  | ({ status: 'ready' } & Session);
 
 interface AuthCtx {
   state: AuthState;
@@ -34,7 +39,9 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-async function loadSession(user: User): Promise<Session | null> {
+type Loaded = Session | { suspended: string } | null;
+
+async function loadSession(user: User): Promise<Loaded> {
   // Forzar token nuevo para tomar la empresa vigente asignada por el owner.
   const token = await user.getIdTokenResult(true);
   const companyId = token.claims.companyId as string | undefined;
@@ -42,12 +49,14 @@ async function loadSession(user: User): Promise<Session | null> {
   const snap = await getDoc(doc(db, 'users', user.uid));
   if (!snap.exists() || snap.data().active !== true || snap.data().companyId !== companyId) return null;
   const profile = { uid: user.uid, ...snap.data() } as UserProfile;
-  const [comp, area, flow] = await Promise.all([
-    getDoc(doc(db, 'companies', companyId)),
+  // La empresa se lee primero: si el owner la suspendió, lo demás está bloqueado.
+  const comp = await getDoc(doc(db, 'companies', companyId));
+  if (!comp.exists()) return null;
+  if (comp.data().active === false) return { suspended: (comp.data().name as string) ?? '' };
+  const [area, flow] = await Promise.all([
     getDoc(doc(db, 'companies', companyId, 'areas', profile.areaId)),
     profile.flowId ? getDoc(doc(db, 'companies', companyId, 'flows', profile.flowId)) : Promise.resolve(null),
   ]);
-  if (!comp.exists()) return null;
   return {
     user,
     profile,
@@ -57,6 +66,12 @@ async function loadSession(user: User): Promise<Session | null> {
   };
 }
 
+function toState(user: User, s: Loaded): AuthState {
+  if (!s) return { status: 'noAccess', user };
+  if ('suspended' in s) return { status: 'suspended', user, companyName: s.suspended };
+  return { status: 'ready', ...s };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
 
@@ -64,8 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onAuthStateChanged(auth, async (user) => {
       if (!user) return setState({ status: 'signedOut' });
       try {
-        const s = await loadSession(user);
-        setState(s ? { status: 'ready', ...s } : { status: 'noAccess', user });
+        setState(toState(user, await loadSession(user)));
       } catch {
         // Permiso denegado = cuenta deshabilitada o sin perfil.
         setState({ status: 'noAccess', user });
@@ -84,8 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async refresh() {
       const user = auth.currentUser;
       if (!user) return;
-      const s = await loadSession(user);
-      setState(s ? { status: 'ready', ...s } : { status: 'noAccess', user });
+      setState(toState(user, await loadSession(user)));
     },
   };
 

@@ -77,6 +77,8 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Quién paga (`payerUid`):** usuario de la empresa con la casilla **"Usuario de pagos"** (`paymentsUser`, la marca el owner en Usuarios; el servidor rechaza un payer sin ella). Está en `allApprovers` para leer las rendiciones del flujo, pero no aprueba. Si el owner cambia el payer de un flujo, `syncReportViewers` actualiza `approverUids` de las rendiciones ya enviadas. `isApprover` se calcula desde los niveles; `isPayer` desde `payerUid`.
 - **Pagos en la web (`/pagos`, solo `paymentsUser`):** pestañas Por pagar (`approved`) / Pagadas (`paid`) / Todas, con totales del mes. El payer del flujo registra el pago (`registerPayment`: método transferencia/efectivo/cheque/otro, N° comprobante, fecha, comentario) → `status: paid` + `payment`. Reglas: solo si `paymentsUser`, es el `payerUid` del flujo, la rendición está `approved` y no es propia. El owner también puede marcar pagada desde el panel (queda `payment.uid = 'owner'`).
 - **Asignación automática:** al guardar un flujo, sus aprobadores (y payer) sin flujo quedan con `flowId` = ese flujo.
+- **Usuario de pagos en la web:** ve solo "Pagos" (+ "Por aprobar" si además es aprobador) y entra directo a `/pagos`; no rinde gastos y no se le asigna flujo automáticamente.
+- **Suspensión de empresa** (mensualidad impaga): en Empresas, "⏸ Suspender servicio" pone `active: false` + `suspendedAt` + `suspendedReason`. Las reglas (`member()` exige empresa activa; `belongsTo()` solo permite leer el doc de la empresa) bloquean todo al instante; la web muestra "Servicio suspendido temporalmente". "▶ Reactivar servicio" lo devuelve tal cual. Los datos no se borran y no genera notificaciones.
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.
@@ -87,7 +89,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 ## Seguridad (no romper)
 
 - `firebase/firestore.rules` es la barrera real de la web: deny por defecto, aislamiento por empresa, validación de campos/tipos/largos, envío solo con los aprobadores exactos del flujo y el nivel de partida exacto (`expectedStart`, desenrollado hasta 8 niveles), aprobación solo por `currentApprovers`, historial `approvals` solo se puede **agregar** (slice; ojo: `list[0:0]` da error en reglas, por eso el caso vacío va aparte), usuario solo puede cambiar su `displayName`.
-- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 26 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
+- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 28 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
 - Si se agrega una moneda: `CURRENCIES` en shared **y** `currencies()` en las reglas.
 - El panel owner escucha solo en `127.0.0.1`, exige `x-admin-token` (aleatorio por inicio, llega por `#t=` en la URL), valida Host/Origin y manda CSP. Todo lo privilegiado (usuarios, claims, flujos, catálogos, aprobación final, pagos, avisos) vive ahí.
 - La web no tiene secretos (la config Firebase es pública por diseño).

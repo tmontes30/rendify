@@ -22,17 +22,30 @@ function Routed() {
   if (state.status === 'loading') return <div className="center-page muted">Cargando…</div>;
   if (state.status === 'signedOut') return <Login />;
   if (state.status === 'noAccess') return <NoAccess />;
+  if (state.status === 'suspended') return <NoAccess suspended={state.companyName} />;
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<MyReports />} />
-        <Route path="/nueva" element={<NewReport />} />
-        <Route path="/carga-masiva" element={<BulkUpload />} />
-        <Route path="/perfil" element={<Profile />} />
-        <Route path="/r/:id" element={<ReportPage />} />
-        {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
-        {state.profile.paymentsUser && <Route path="/pagos" element={<Payments />} />}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {state.profile.paymentsUser ? (
+          // Usuario de pagos: solo su sección de pagos (y aprobar si además es aprobador).
+          <>
+            <Route path="/pagos" element={<Payments />} />
+            <Route path="/r/:id" element={<ReportPage />} />
+            <Route path="/perfil" element={<Profile />} />
+            {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
+            <Route path="*" element={<Navigate to="/pagos" replace />} />
+          </>
+        ) : (
+          <>
+            <Route path="/" element={<MyReports />} />
+            <Route path="/nueva" element={<NewReport />} />
+            <Route path="/carga-masiva" element={<BulkUpload />} />
+            <Route path="/perfil" element={<Profile />} />
+            <Route path="/r/:id" element={<ReportPage />} />
+            {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        )}
       </Routes>
     </Layout>
   );

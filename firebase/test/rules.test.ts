@@ -307,3 +307,27 @@ describe('pagos', () => {
     await assertFails(updateDoc(doc(reportsOf(u.payer), 'own'), pay(u.payer)));
   });
 });
+
+describe('empresa suspendida', () => {
+  beforeEach(async () => {
+    await seed('r1', u.worker, {});
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'companies', A), { active: false });
+    });
+  });
+
+  it('sus usuarios solo pueden ver que está suspendida', async () => {
+    await assertSucceeds(getDoc(doc(fs(u.worker), 'companies', A)));
+    await assertFails(getDoc(doc(reportsOf(u.worker), 'r1')));
+    await assertFails(getDocs(collection(fs(u.worker), 'companies', A, 'categories')));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'nuevo'), draft(u.worker)));
+    await assertFails(getDocs(query(collection(fs(u.boss), 'companies', A, 'reports'), where('currentApprovers', 'array-contains', 'b1'))));
+  });
+
+  it('al reactivarla vuelve todo', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'companies', A), { active: true });
+    });
+    await assertSucceeds(getDoc(doc(reportsOf(u.worker), 'r1')));
+  });
+});

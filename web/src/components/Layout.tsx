@@ -33,7 +33,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link to="/" className="sidebar-brand" title="Ir al inicio">
+        <Link to={profile.paymentsUser ? '/pagos' : '/'} className="sidebar-brand" title="Ir al inicio">
           <Logo />
           <div>
             <div className="brand-name">Rendiciones</div>
@@ -41,30 +41,34 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         </Link>
         <nav className="side-nav">
-          <NavLink to="/" end>
-            <span className="nav-icon" aria-hidden="true">☰</span>
-            <span>Mis rendiciones</span>
-          </NavLink>
-          <NavLink to="/nueva">
-            <span className="nav-icon" aria-hidden="true">＋</span>
-            <span>Nueva rendición</span>
-          </NavLink>
-          <NavLink to="/carga-masiva">
-            <span className="nav-icon" aria-hidden="true">⇪</span>
-            <span>Carga masiva</span>
-          </NavLink>
-          {profile.isApprover && (
-            <NavLink to="/aprobar">
-              <span className="nav-icon" aria-hidden="true">✓</span>
-              <span>Por aprobar</span>
-              {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
-            </NavLink>
+          {!profile.paymentsUser && (
+            <>
+              <NavLink to="/" end>
+                <span className="nav-icon" aria-hidden="true">☰</span>
+                <span>Mis rendiciones</span>
+              </NavLink>
+              <NavLink to="/nueva">
+                <span className="nav-icon" aria-hidden="true">＋</span>
+                <span>Nueva rendición</span>
+              </NavLink>
+              <NavLink to="/carga-masiva">
+                <span className="nav-icon" aria-hidden="true">⇪</span>
+                <span>Carga masiva</span>
+              </NavLink>
+            </>
           )}
           {profile.paymentsUser && (
             <NavLink to="/pagos">
               <span className="nav-icon" aria-hidden="true">💳</span>
               <span>Pagos</span>
               {toPayCount > 0 && <span className="nav-count">{toPayCount}</span>}
+            </NavLink>
+          )}
+          {profile.isApprover && (
+            <NavLink to="/aprobar">
+              <span className="nav-icon" aria-hidden="true">✓</span>
+              <span>Por aprobar</span>
+              {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
             </NavLink>
           )}
         </nav>

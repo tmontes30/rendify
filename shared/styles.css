@@ -499,3 +499,4 @@ button.good:hover { background: var(--good-soft); }
   .notice-row { grid-template-columns: 1fr auto; }
   .notice-to { grid-column: 1 / -1; }
 }
+.company-card.suspended { background: var(--bad-soft); border-color: var(--bad); }

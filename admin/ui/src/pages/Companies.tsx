@@ -8,9 +8,23 @@ export function Companies() {
   const { companies, reloadCompanies, setCompanyId, companyId } = useCompany();
   const [editing, setEditing] = useState<CompanyRow | 'new' | null>(null);
 
-  async function toggle(c: CompanyRow) {
-    if (c.active && !confirm(`¿Desactivar ${c.name}? Sus usuarios seguirán existiendo; desactívalos en Usuarios si quieres cortar el acceso.`)) return;
-    await api.patch(`/companies/${c.id}`, { active: !c.active }).catch((e) => alert(e.message));
+  async function suspend(c: CompanyRow) {
+    const reason = prompt(
+      `Suspender el servicio de ${c.name}.
+
+Sus usuarios no podrán entrar ni ver nada hasta que lo reactives. Los datos no se borran.
+
+Motivo (solo lo ves tú):`,
+      'Mensualidad pendiente de pago',
+    );
+    if (reason === null) return;
+    await api.post(`/companies/${c.id}/suspend`, { reason }).catch((e) => alert(e.message));
+    await reloadCompanies();
+  }
+
+  async function resume(c: CompanyRow) {
+    if (!confirm(`¿Reactivar el servicio de ${c.name}? Sus usuarios vuelven a tener acceso de inmediato.`)) return;
+    await api.post(`/companies/${c.id}/resume`).catch((e) => alert(e.message));
     await reloadCompanies();
   }
 
@@ -23,20 +37,30 @@ export function Companies() {
       />
       <div className="grid grid-cards">
         {companies.map((c) => (
-          <div key={c.id} className={`card company-card${companyId === c.id ? ' selected' : ''}`}>
+          <div key={c.id} className={`card company-card${companyId === c.id ? ' selected' : ''}${c.active ? '' : ' suspended'}`}>
             <div className="row spread">
               <h3 style={{ margin: 0 }}>{c.name}</h3>
-              <span className={`badge ${c.active ? 'approved' : 'rejected'}`}>{c.active ? 'Activa' : 'Inactiva'}</span>
+              <span className={`badge ${c.active ? 'approved' : 'rejected'}`}>{c.active ? 'Activa' : '⏸ Suspendida'}</span>
             </div>
             <div className="muted small">
               Moneda base: {c.baseCurrency} · {c.activeUsers} usuario(s) activo(s)
             </div>
+            {!c.active && (
+              <div className="alert error small" style={{ marginTop: 8 }}>
+                Servicio suspendido{c.suspendedAt ? ` desde ${fmtDateTime(c.suspendedAt)}` : ''}
+                {c.suspendedReason ? ` · ${c.suspendedReason}` : ''}. Sus usuarios no tienen acceso.
+              </div>
+            )}
             <div className="row" style={{ marginTop: 12 }}>
               <button className="primary" onClick={() => setCompanyId(c.id)} disabled={companyId === c.id}>
                 {companyId === c.id ? 'Seleccionada' : 'Seleccionar'}
               </button>
               <button onClick={() => setEditing(c)}>Editar</button>
-              <button className="link" onClick={() => toggle(c)}>{c.active ? 'Desactivar' : 'Activar'}</button>
+              {c.active ? (
+                <button className="link danger-link" onClick={() => suspend(c)}>⏸ Suspender servicio</button>
+              ) : (
+                <button className="good" onClick={() => resume(c)}>▶ Reactivar servicio</button>
+              )}
             </div>
           </div>
         ))}

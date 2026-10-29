@@ -27,7 +27,7 @@ export function useLoad<T>(path: string | null) {
   return { data, error, loading, reload };
 }
 
-export type CompanyRow = Company & { activeUsers: number };
+export type CompanyRow = Company & { activeUsers: number; suspendedAt?: string | null; suspendedReason?: string };
 
 interface CompanyCtx {
   companies: CompanyRow[];
