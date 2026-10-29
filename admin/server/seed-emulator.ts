@@ -1,5 +1,6 @@
 // Carga datos de prueba en los EMULADORES (nunca en producción).
 // Uso: npm run emulators  (en otra terminal)  y luego  npm run seed:emu -w admin
+export {};
 process.argv.push('--emulator');
 const { auth, db } = await import('./firebase.js');
 

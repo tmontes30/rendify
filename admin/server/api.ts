@@ -58,7 +58,8 @@ function tsToIso(v: unknown): string | null {
   return v instanceof Timestamp ? v.toDate().toISOString() : null;
 }
 
-function serializeReport(id: string, d: FirebaseFirestore.DocumentData) {
+function serializeReport(id: string, data: FirebaseFirestore.DocumentData) {
+  const d = data as Omit<Report, "id">;
   return {
     ...d,
     id,
