@@ -29,10 +29,47 @@ export function billingLabel(b: Billing | null | undefined) {
   return { text: `Próximo vencimiento ${fmtDay(b.dueDate)} (en ${b.daysLeft} días)`, cls: 'bill-ok' };
 }
 
+type CompanyFilter = 'all' | 'soon' | 'overdue' | 'alert' | 'suspended' | 'none';
+const COMPANY_FILTERS: { key: CompanyFilter; label: string }[] = [
+  { key: 'all', label: 'Todas' },
+  { key: 'soon', label: '🟡 Por vencer' },
+  { key: 'overdue', label: '🔴 Vencidas' },
+  { key: 'alert', label: '🟡+🔴 Por vencer o vencidas' },
+  { key: 'suspended', label: '⏸ Suspendidas' },
+  { key: 'none', label: 'Sin fecha' },
+];
+
 export function Companies() {
   const { companies, reloadCompanies, setCompanyId, companyId } = useCompany();
   const [editing, setEditing] = useState<CompanyRow | 'new' | null>(null);
   const billing = useLoad<Record<string, Billing | null>>('/billing');
+  const [filter, setFilter] = useState<CompanyFilter>(() => {
+    try {
+      return (localStorage.getItem('company-filter') as CompanyFilter) || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const chooseFilter = (f: CompanyFilter) => {
+    setFilter(f);
+    try {
+      localStorage.setItem('company-filter', f);
+    } catch {
+      /* ignorar */
+    }
+  };
+  const stateOf = (c: CompanyRow) => billing.data?.[c.id]?.state ?? 'none';
+  const matches = (c: CompanyRow, f: CompanyFilter) =>
+    f === 'all' ||
+    (f === 'soon' && stateOf(c) === 'soon') ||
+    (f === 'overdue' && stateOf(c) === 'overdue') ||
+    (f === 'alert' && (stateOf(c) === 'soon' || stateOf(c) === 'overdue')) ||
+    (f === 'suspended' && !c.active) ||
+    (f === 'none' && stateOf(c) === 'none');
+  const shown = companies
+    .filter((c) => matches(c, filter))
+    // Las más urgentes primero: vencidas, por vencer, luego el resto.
+    .sort((a, b) => (billing.data?.[a.id]?.daysLeft ?? 9999) - (billing.data?.[b.id]?.daysLeft ?? 9999));
 
   async function markPaid(c: CompanyRow) {
     const b = billing.data?.[c.id];
@@ -68,8 +105,15 @@ Motivo (solo lo ves tú):`,
         subtitle="Cada empresa tiene sus propias áreas, categorías, flujos y usuarios, aislados de las demás."
         actions={<button className="primary" onClick={() => setEditing('new')}>+ Nueva empresa</button>}
       />
+      <nav className="tabs">
+        {COMPANY_FILTERS.map((f) => (
+          <button key={f.key} className={filter === f.key ? 'active' : ''} onClick={() => chooseFilter(f.key)}>
+            {f.label} <span className="count-pill">{companies.filter((c) => matches(c, f.key)).length}</span>
+          </button>
+        ))}
+      </nav>
       <div className="grid grid-cards">
-        {companies.map((c) => (
+        {shown.map((c) => (
           <div key={c.id} className={`card company-card${companyId === c.id ? ' selected' : ''}${c.active ? '' : ' suspended'} ${billingLabel(billing.data?.[c.id]).cls}-card`}>
             <div className="row spread">
               <h3 style={{ margin: 0 }}>{c.name}</h3>
@@ -113,6 +157,7 @@ Motivo (solo lo ves tú):`,
           </div>
         ))}
         {companies.length === 0 && <div className="card empty muted">Aún no hay empresas. Crea la primera.</div>}
+        {companies.length > 0 && shown.length === 0 && <div className="card empty muted">Ninguna empresa en este filtro. 🎉</div>}
       </div>
       {companyId && companies.some((c) => c.id === companyId) && <CompanySummary key={companyId} cid={companyId} />}
       {editing && (
