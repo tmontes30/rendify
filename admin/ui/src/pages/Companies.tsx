@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { CURRENCIES, CURRENCY_CODES, type Currency } from '@rendiciones/shared';
+import { CURRENCIES, CURRENCY_CODES, STATUS_LABELS, formatTotals, type Currency, type Status, type Totals } from '@rendiciones/shared';
 import { api } from '../api';
 import { Modal, PageHeader } from '../components';
-import { useCompany, type CompanyRow } from '../hooks';
+import { fmtDateTime, useCompany, useLoad, type CompanyRow } from '../hooks';
 
 export function Companies() {
   const { companies, reloadCompanies, setCompanyId, companyId } = useCompany();
@@ -42,6 +42,7 @@ export function Companies() {
         ))}
         {companies.length === 0 && <div className="card empty muted">Aún no hay empresas. Crea la primera.</div>}
       </div>
+      {companyId && companies.some((c) => c.id === companyId) && <CompanySummary key={companyId} cid={companyId} />}
       {editing && (
         <CompanyModal
           company={editing === 'new' ? null : editing}
@@ -102,5 +103,96 @@ function CompanyModal({ company, onClose, onSaved }: { company: CompanyRow | nul
         </div>
       </form>
     </Modal>
+  );
+}
+
+interface Summary {
+  users: { total: number; active: number; approvers: number; withoutFlow: string[] };
+  flows: { id: string; name: string; levels: number; users: number }[];
+  areas: { total: number; active: number };
+  categories: { total: number; active: number };
+  reports: { total: number; byStatus: Partial<Record<Status, { count: number; totals: Totals }>>; waitingOwner: number };
+  lastActivity: string | null;
+}
+
+function CompanySummary({ cid }: { cid: string }) {
+  const { companyName, goTo } = useCompany();
+  const { data, error } = useLoad<Summary>(`/companies/${cid}/summary`);
+  const st = (s: Status) => data?.reports.byStatus[s];
+
+  return (
+    <div className="card summary-card">
+      <div className="row spread">
+        <h2 style={{ margin: 0 }}>{companyName(cid)}</h2>
+        {data && <span className="muted small">Última actividad: {data.lastActivity ? fmtDateTime(data.lastActivity) : 'sin rendiciones aún'}</span>}
+      </div>
+      {error && <div className="alert error">{error}</div>}
+      {!data ? (
+        <p className="muted">Cargando resumen…</p>
+      ) : (
+        <>
+          {(data.users.withoutFlow.length > 0 || data.reports.waitingOwner > 0 || data.flows.length === 0 || data.categories.active === 0) && (
+            <div className="stack" style={{ marginTop: 12 }}>
+              {data.reports.waitingOwner > 0 && (
+                <div className="alert warn">
+                  {data.reports.waitingOwner} rendición(es) esperan <b>tu aprobación</b>.{' '}
+                  <button className="link" onClick={() => goTo('rendiciones')}>Ver</button>
+                </div>
+              )}
+              {data.flows.length === 0 && (
+                <div className="alert warn">
+                  No tiene flujos de aprobación: nadie puede enviar rendiciones.{' '}
+                  <button className="link" onClick={() => goTo('flujos')}>Crear flujo</button>
+                </div>
+              )}
+              {data.users.withoutFlow.length > 0 && (
+                <div className="alert warn">
+                  {data.users.withoutFlow.length} persona(s) sin flujo (no pueden enviar): {data.users.withoutFlow.join(', ')}.{' '}
+                  <button className="link" onClick={() => goTo('usuarios')}>Asignar</button>
+                </div>
+              )}
+              {data.categories.active === 0 && (
+                <div className="alert warn">
+                  No tiene categorías de gasto activas. <button className="link" onClick={() => goTo('catalogo')}>Agregar</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid summary-tiles">
+            <button className="sum-tile" onClick={() => goTo('usuarios')}>
+              <span className="label">Personas activas</span>
+              <span className="value">{data.users.active}</span>
+              <span className="sub">{data.users.approvers} aprobador(es){data.users.total > data.users.active ? ` · ${data.users.total - data.users.active} deshabilitada(s)` : ''}</span>
+            </button>
+            <button className="sum-tile" onClick={() => goTo('flujos')}>
+              <span className="label">Flujos de aprobación</span>
+              <span className="value">{data.flows.length}</span>
+              <span className="sub">{data.flows.map((f) => `${f.name} (${f.levels} niv. · ${f.users} pers.)`).join(' · ') || 'Ninguno'}</span>
+            </button>
+            <button className="sum-tile" onClick={() => goTo('catalogo')}>
+              <span className="label">Áreas / Categorías</span>
+              <span className="value">{data.areas.active} / {data.categories.active}</span>
+              <span className="sub">activas</span>
+            </button>
+            <button className="sum-tile" onClick={() => goTo('rendiciones')}>
+              <span className="label">Rendiciones</span>
+              <span className="value">{data.reports.total}</span>
+              <span className="sub">en total</span>
+            </button>
+          </div>
+
+          <div className="status-strip">
+            {(['pending', 'approved', 'paid', 'rejected', 'draft'] as Status[]).map((s) => (
+              <div key={s} className="status-cell">
+                <span className={`badge ${s}`}>{STATUS_LABELS[s]}</span>
+                <span className="strong">{st(s)?.count ?? 0}</span>
+                <span className="muted small">{st(s)?.count ? formatTotals(st(s)?.totals) : '—'}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

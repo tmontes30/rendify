@@ -36,6 +36,8 @@ interface CompanyCtx {
   reloadCompanies: () => Promise<void>;
   companyName: (id: string | null | undefined) => string;
   webUrl: string;
+  /** Navega a otra sección del panel. */
+  goTo: (page: string) => void;
 }
 
 export const CompanyContext = createContext<CompanyCtx | null>(null);

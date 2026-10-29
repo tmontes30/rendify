@@ -81,7 +81,7 @@ export function App() {
   const companyName = (id: string | null | undefined) => companies.find((c) => c.id === id)?.name ?? id ?? '—';
 
   return (
-    <CompanyContext.Provider value={{ companies, companyId, setCompanyId, reloadCompanies, companyName, webUrl: session.webUrl }}>
+    <CompanyContext.Provider value={{ companies, companyId, setCompanyId, reloadCompanies, companyName, webUrl: session.webUrl, goTo: setPage }}>
       <div className="shell admin-shell">
         <aside className="sidebar">
           <div className="sidebar-brand">

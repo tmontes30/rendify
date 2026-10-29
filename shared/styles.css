@@ -452,3 +452,17 @@ tr.row-bad td { background: var(--bad-soft); }
 /* ===== Panel owner: acento gris para diferenciarlo ===== */
 .admin-shell .sidebar { background: #1f2329; }
 .admin-shell .side-nav a.active { box-shadow: inset 3px 0 0 #a3abb9; }
+
+/* ===== Resumen de empresa ===== */
+.summary-card { border-color: var(--accent); }
+.summary-tiles { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 16px; }
+.sum-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font-weight: 400;
+  padding: 14px 16px; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--radius-sm);
+}
+.sum-tile:hover { border-color: var(--accent); background: var(--surface); }
+.sum-tile .label { font-size: 13px; color: var(--muted); font-weight: 500; }
+.sum-tile .value { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.sum-tile .sub { font-size: 12.5px; color: var(--text-2); }
+.status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.status-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }

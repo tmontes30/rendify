@@ -147,6 +147,53 @@ api.patch(
   }),
 );
 
+/** Resumen de una empresa: personas, flujos, catálogos y rendiciones por estado. */
+api.get(
+  '/companies/:cid/summary',
+  h(async (req, res) => {
+    const cid = req.params.cid;
+    await assertCompany(cid);
+    const [users, flows, areas, categories, reports] = await Promise.all([
+      db.collection('users').where('companyId', '==', cid).get(),
+      company(cid).collection('flows').get(),
+      company(cid).collection('areas').get(),
+      company(cid).collection('categories').get(),
+      company(cid).collection('reports').select('status', 'totals', 'updatedAt', 'currentApprovers').get(),
+    ]);
+    const active = users.docs.filter((u) => u.data().active);
+    const byStatus: Record<string, { count: number; totals: Totals }> = {};
+    let lastActivity: string | null = null;
+    let waitingOwner = 0;
+    for (const r of reports.docs) {
+      const d = r.data();
+      const s = (byStatus[d.status] ??= { count: 0, totals: {} });
+      s.count++;
+      for (const [c, v] of Object.entries((d.totals ?? {}) as Totals)) s.totals[c as Currency] = (s.totals[c as Currency] ?? 0) + (v ?? 0);
+      const at = tsToIso(d.updatedAt);
+      if (at && (!lastActivity || at > lastActivity)) lastActivity = at;
+      if (d.status === 'pending' && !(d.currentApprovers ?? []).length) waitingOwner++;
+    }
+    res.json({
+      users: {
+        total: users.size,
+        active: active.length,
+        approvers: active.filter((u) => u.data().isApprover).length,
+        withoutFlow: active.filter((u) => !u.data().flowId).map((u) => u.data().displayName as string),
+      },
+      flows: flows.docs.map((f) => ({
+        id: f.id,
+        name: f.data().name as string,
+        levels: (f.data().levels ?? []).length as number,
+        users: active.filter((u) => u.data().flowId === f.id).length,
+      })),
+      areas: { total: areas.size, active: areas.docs.filter((a) => a.data().active !== false).length },
+      categories: { total: categories.size, active: categories.docs.filter((c) => c.data().active !== false).length },
+      reports: { total: reports.size, byStatus, waitingOwner },
+      lastActivity,
+    });
+  }),
+);
+
 /** Agrega las áreas y categorías base que falten (no toca las existentes). */
 async function seedDefaults(cid: string) {
   let added = 0;
