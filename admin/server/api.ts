@@ -7,6 +7,7 @@ import {
   DEFAULT_AREAS,
   DEFAULT_CATEGORIES,
   PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   REMINDER_HOURS,
   DOC_TYPE_LABELS,
@@ -714,6 +715,14 @@ api.get(
         `Hola ${r.ownerName},`,
         '',
         `Tu rendición "${r.title}" (${total}) ${what}.`,
+        ...(r.status === 'paid' && r.payment
+          ? [
+              '',
+              `• Pago: ${PAYMENT_METHOD_LABELS[r.payment.method] ?? r.payment.method}${r.payment.reference ? ` · N° ${r.payment.reference}` : ''}`,
+              `• Fecha de pago: ${r.payment.paidOn}`,
+              ...(r.payment.comment ? [`• Comentario: ${r.payment.comment}`] : []),
+            ]
+          : []),
         ...(r.status === 'rejected' && lastComment ? ['', `Motivo: ${lastComment}`, '', 'Corrígela y vuelve a enviarla desde la plataforma.'] : []),
         '',
         `Ver rendición: ${link}`,
@@ -994,6 +1003,7 @@ async function computeNotices(onlyCid?: string) {
   const companies = (await db.collection('companies').get()).docs.filter((c) => (!onlyCid || c.id === onlyCid) && c.data().active !== false);
   const now = Date.now();
   const payer: NoticeItem[] = [];
+  const paid: NoticeItem[] = [];
   const approvers: NoticeItem[] = [];
   const ownerTurn: NoticeItem[] = [];
   const userCache = new Map<string, string>();
@@ -1004,7 +1014,7 @@ async function computeNotices(onlyCid?: string) {
 
   for (const c of companies) {
     const [reports, flows] = await Promise.all([
-      company(c.id).collection('reports').where('status', 'in', ['pending', 'approved']).get(),
+      company(c.id).collection('reports').where('status', 'in', ['pending', 'approved', 'paid']).get(),
       company(c.id).collection('flows').get(),
     ]);
     const flowMap = new Map(flows.docs.map((f) => [f.id, f.data()]));
@@ -1013,6 +1023,22 @@ async function computeNotices(onlyCid?: string) {
       const flow = r.flowId ? flowMap.get(r.flowId) : undefined;
       const base = { companyId: c.id, companyName: c.data().name as string, id: d.id, title: r.title, ownerName: r.ownerName, total: formatTotals(r.totals) };
       const notice = r.lastNotice;
+
+      if (r.status === 'paid') {
+        // Pagada: avisar al trabajador (solo pagos de los últimos 30 días sin aviso posterior).
+        const paidAt = ms(r.paidAt);
+        if (now - paidAt > 30 * 24 * HOUR) continue;
+        if (notice?.kind === 'paid' && ms(notice.at) >= paidAt) continue;
+        const p = r.payment;
+        paid.push({
+          ...base,
+          levelName: p ? `Pagó ${p.name}${p.reference ? ` · N° ${p.reference}` : ''}` : 'Pagada',
+          to: [r.ownerName],
+          waitingHours: Math.floor((now - paidAt) / HOUR),
+          isReminder: false,
+        });
+        continue;
+      }
 
       if (r.status === 'approved') {
         const approvedAt = Math.max(ms(r.decidedAt), ms(r.ownerReview?.at));
@@ -1049,7 +1075,7 @@ async function computeNotices(onlyCid?: string) {
     }
   }
   const byWait = (a: NoticeItem, b: NoticeItem) => b.waitingHours - a.waitingHours;
-  return { payer: payer.sort(byWait), approvers: approvers.sort(byWait), ownerTurn: ownerTurn.sort(byWait) };
+  return { payer: payer.sort(byWait), approvers: approvers.sort(byWait), paid: paid.sort((a, b) => a.waitingHours - b.waitingHours), ownerTurn: ownerTurn.sort(byWait) };
 }
 
 api.get(
@@ -1063,7 +1089,7 @@ api.get(
   '/notifications/count',
   h(async (req, res) => {
     const n = await cached(`notices-${qCompany(req) ?? 'all'}`, 30_000, () => computeNotices(qCompany(req)));
-    res.json({ count: n.payer.length + n.approvers.length + n.ownerTurn.length });
+    res.json({ count: n.payer.length + n.approvers.length + n.paid.length + n.ownerTurn.length });
   }),
 );
 
@@ -1071,7 +1097,7 @@ api.get(
 api.post(
   '/companies/:cid/reports/:id/notified',
   h(async (req, res) => {
-    const kind = req.body?.kind === 'payer' ? 'payer' : 'approver';
+    const kind = req.body?.kind === 'payer' ? 'payer' : req.body?.kind === 'paid' ? 'paid' : 'approver';
     const ref = reportRef(req.params.cid, req.params.id);
     const snap = await ref.get();
     if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');

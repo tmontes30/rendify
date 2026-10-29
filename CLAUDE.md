@@ -83,7 +83,8 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.
   2. `pending` > `REMINDER_HOURS` (24 h) en el nivel actual, contadas desde que llegó al nivel (`max(submittedAt, decidedAt)`) o desde el último aviso de ese nivel → avisar al aprobador (si ya se avisó, "Recordatorio").
-  3. `pending` sin aprobadores → espera al owner.
+  3. `paid` en los últimos 30 días sin aviso posterior al pago → avisar al trabajador (mensaje con método, N° y fecha de pago).
+  4. `pending` sin aprobadores → espera al owner.
   El owner copia/pega el correo (o "Abrir en mi correo") y pulsa "Marcar como avisado" (`lastNotice`).
 
 ## Seguridad (no romper)

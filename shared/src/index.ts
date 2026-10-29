@@ -210,7 +210,7 @@ export interface Report {
   /** Datos del pago registrado por el usuario de pagos (o por el owner). */
   payment?: Payment;
   /** Último aviso por correo marcado por el owner (solo lo escribe el panel). */
-  lastNotice?: { kind: 'approver' | 'payer'; level: number; at: unknown };
+  lastNotice?: { kind: 'approver' | 'payer' | 'paid'; level: number; at: unknown };
 }
 
 export const PAYMENT_METHODS = ['transferencia', 'efectivo', 'cheque', 'otro'] as const;

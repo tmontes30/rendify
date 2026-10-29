@@ -310,7 +310,7 @@ export function NotifyModal({
   /** Mensaje para quien paga (en vez del destinatario según el estado). */
   toPayer?: boolean;
   /** Si se indica, muestra "Marcar como avisado" (saca el aviso de Notificaciones). */
-  markKind?: 'payer' | 'approver';
+  markKind?: 'payer' | 'approver' | 'paid';
   onMarked?: () => void;
 }) {
   const { data, error } = useLoad<NotifyData>(`/companies/${cid}/reports/${id}/notify${toPayer ? '?to=payer' : ''}`);

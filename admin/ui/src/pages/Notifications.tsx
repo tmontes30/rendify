@@ -22,6 +22,7 @@ interface NoticeItem {
 interface Notices {
   payer: NoticeItem[];
   approvers: NoticeItem[];
+  paid: NoticeItem[];
   ownerTurn: NoticeItem[];
 }
 
@@ -34,7 +35,7 @@ function duration(h: number) {
 export function Notifications({ onChanged }: { onChanged: () => void }) {
   const { companyId, companyName, goTo } = useCompany();
   const { data, error, loading, reload } = useLoad<Notices>(`/notifications${qs({ companyId: companyId || undefined })}`);
-  const [open, setOpen] = useState<{ item: NoticeItem; kind: 'payer' | 'approver' } | null>(null);
+  const [open, setOpen] = useState<{ item: NoticeItem; kind: 'payer' | 'approver' | 'paid' } | null>(null);
 
   const refresh = async () => {
     await reload();
@@ -112,6 +113,30 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
                 </div>
                 <div className="report-amount">{it.total}</div>
                 <button className="primary" onClick={() => setOpen({ item: it, kind: 'approver' })}>
+                  ✉ Preparar aviso
+                </button>
+              </>
+            )}
+          />
+
+          <Section
+            icon="✅"
+            title="Pagadas: avisar al trabajador"
+            empty="No hay pagos recientes pendientes de aviso."
+            items={data.paid}
+            render={(it) => (
+              <>
+                <div className="notice-main">
+                  <div className="strong">{it.title}</div>
+                  <div className="muted small">
+                    {it.companyName} · {it.levelName} · hace {duration(it.waitingHours)}
+                  </div>
+                </div>
+                <div className="notice-to small">
+                  Para: <b>{it.to.join(', ')}</b>
+                </div>
+                <div className="report-amount">{it.total}</div>
+                <button className="primary" onClick={() => setOpen({ item: it, kind: 'paid' })}>
                   ✉ Preparar aviso
                 </button>
               </>
