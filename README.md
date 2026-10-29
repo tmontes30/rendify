@@ -52,7 +52,7 @@ npm run test:rules
 
 1. Crea un proyecto en <https://console.firebase.google.com> (plan Spark gratuito es suficiente).
 2. **Authentication** → Comenzar → habilita solo **Correo electrónico/contraseña**.
-   - Configuración → *Dominios autorizados*: deja `localhost` y agrega `TU_USUARIO.github.io`. Quita cualquier otro.
+   - Configuración → *Dominios autorizados*: deja `localhost` y agrega `cavedevz.com` (tu dominio de GitHub Pages). Quita cualquier otro.
    - Configuración → *Política de contraseñas*: exige mínimo 10 caracteres.
    - Plantillas → ajusta el correo de "restablecer contraseña" en español.
 3. **Firestore Database** → Crear base de datos → modo **producción** → región cercana (ej. `southamerica-west1` Santiago).
@@ -83,11 +83,11 @@ Se abre el navegador con un enlace que contiene un token de sesión (cambia cada
    ```
 3. En el repo: **Settings → Secrets and variables → Actions** → crea los secretos `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` (y opcional `VITE_RECAPTCHA_SITE_KEY`).
 4. **Settings → Pages → Source: GitHub Actions**.
-5. Cada push a `main` publica la web en `https://TU_USUARIO.github.io/TU_REPO/`. Ese es el link que compartes.
+5. Cada push a `main` publica la web en `https://cavedevz.com/Rendiciones-Empresas/`. Ese es el link que compartes.
 
 ### 4. Endurecimiento recomendado
 
-- **Restringe la API key**: Google Cloud Console → APIs y servicios → Credenciales → la clave "Browser key" → *Restricciones de aplicaciones: Sitios web* → `https://TU_USUARIO.github.io/*` y `http://127.0.0.1:5173/*`.
+- **Restringe la API key**: Google Cloud Console → APIs y servicios → Credenciales → la clave "Browser key" → *Restricciones de aplicaciones: Sitios web* → `https://cavedevz.com/*` y `http://127.0.0.1:5173/*`.
 - **App Check** (bloquea clientes que no sean tu web): Firebase Console → App Check → registra la app web con reCAPTCHA v3, pon la *site key* en el secreto `VITE_RECAPTCHA_SITE_KEY`, y cuando veas tráfico verificado activa *Aplicar* para Firestore y Authentication.
 - **Alertas de presupuesto**: aunque estés en el plan gratuito, revisa periódicamente *Uso y facturación*.
 - **Respaldo**: exporta CSV desde el panel periódicamente.
