@@ -302,25 +302,30 @@ interface NotifyData {
 
 /** Mensaje de correo listo para copiar y pegar (o abrir en el programa de correo). */
 export function NotifyModal({
-  cid, id, onClose, toPayer, markKind, onMarked,
+  cid, id, onClose, toPayer, markKind, onMarked, path, markPath, title,
 }: {
   cid: string;
   id: string;
   onClose: () => void;
+  /** Ruta alternativa para obtener el mensaje (p. ej. recordatorio de mensualidad). */
+  path?: string;
+  /** Ruta alternativa para "Marcar como avisado". */
+  markPath?: string;
+  title?: string;
   /** Mensaje para quien paga (en vez del destinatario según el estado). */
   toPayer?: boolean;
   /** Si se indica, muestra "Marcar como avisado" (saca el aviso de Notificaciones). */
   markKind?: 'payer' | 'approver' | 'paid';
   onMarked?: () => void;
 }) {
-  const { data, error } = useLoad<NotifyData>(`/companies/${cid}/reports/${id}/notify${toPayer ? '?to=payer' : ''}`);
+  const { data, error } = useLoad<NotifyData>(path ?? `/companies/${cid}/reports/${id}/notify${toPayer ? '?to=payer' : ''}`);
   const [copied, setCopied] = useState<string | null>(null);
   const [marking, setMarking] = useState(false);
 
   async function mark() {
     setMarking(true);
     try {
-      await api.post(`/companies/${cid}/reports/${id}/notified`, { kind: markKind });
+      await api.post(markPath ?? `/companies/${cid}/reports/${id}/notified`, { kind: markKind });
       onMarked?.();
       onClose();
     } catch (e) {
@@ -340,7 +345,7 @@ export function NotifyModal({
     : '#';
 
   return (
-    <Modal title="Avisar por correo" onClose={onClose}>
+    <Modal title={title ?? 'Avisar por correo'} onClose={onClose}>
       {error && <div className="alert error">{error}</div>}
       {!data ? (
         <p className="muted">Preparando mensaje…</p>
@@ -360,7 +365,7 @@ export function NotifyModal({
             <button onClick={() => copy('Todo', `Para: ${data.to.join(', ')}\nAsunto: ${data.subject}\n\n${data.body}`)}>
               {copied === 'Todo' ? '✓ Copiado' : 'Copiar todo'}
             </button>
-            {markKind && (
+            {(markKind || markPath) && (
               <button className="good" disabled={marking} onClick={mark}>
                 ✓ Marcar como avisado
               </button>

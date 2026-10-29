@@ -500,3 +500,19 @@ button.good:hover { background: var(--good-soft); }
   .notice-to { grid-column: 1 / -1; }
 }
 .company-card.suspended { background: var(--bad-soft); border-color: var(--bad); }
+
+/* ===== Facturación de empresas ===== */
+.bill-chip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding: 7px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; }
+.bill-chip .link { margin-left: auto; padding: 0 4px; }
+.bill-chip.bill-ok { background: var(--surface-2); color: var(--text-2); font-weight: 500; }
+.bill-chip.bill-none { background: var(--surface-2); color: var(--muted); font-weight: 500; }
+.bill-chip.bill-soon { background: var(--warn-soft); color: var(--warn); }
+.bill-chip.bill-overdue { background: var(--bad-soft); color: var(--bad); }
+.company-card.bill-soon-card { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.company-card.bill-overdue-card { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+
+.bill-section { border-color: var(--warn); }
+.notice-row.bill-overdue-row { border-color: var(--bad); background: var(--bad-soft); }
+.notice-row.bill-soon-row { border-color: var(--warn); background: var(--warn-soft); }
+.bill-text.bill-overdue { color: var(--bad); font-weight: 700; }
+.bill-text.bill-soon { color: var(--warn); font-weight: 700; }

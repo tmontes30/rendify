@@ -2,7 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { REMINDER_HOURS } from '@rendiciones/shared';
 import { PageHeader } from '../components';
 import { useCompany, useLoad } from '../hooks';
-import { qs } from '../api';
+import { api, qs } from '../api';
+import { billingLabel, type Billing } from './Companies';
+import { formatMoney } from '@rendiciones/shared';
 import { NotifyModal } from './Reports';
 
 interface NoticeItem {
@@ -18,6 +20,8 @@ interface NoticeItem {
   isReminder: boolean;
   missingPayer?: boolean;
 }
+
+type BillNotice = Billing & { companyId: string; companyName: string; active: boolean };
 
 interface Notices {
   payer: NoticeItem[];
@@ -36,11 +40,26 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
   const { companyId, companyName, goTo } = useCompany();
   const { data, error, loading, reload } = useLoad<Notices>(`/notifications${qs({ companyId: companyId || undefined })}`);
   const [open, setOpen] = useState<{ item: NoticeItem; kind: 'payer' | 'approver' | 'paid' } | null>(null);
+  const bills = useLoad<BillNotice[]>(`/notifications/billing${qs({ companyId: companyId || undefined })}`);
+  const [billOpen, setBillOpen] = useState<BillNotice | null>(null);
 
   const refresh = async () => {
-    await reload();
+    await Promise.all([reload(), bills.reload()]);
     onChanged();
   };
+
+  async function billPaid(b: BillNotice) {
+    if (!confirm(`¿Registrar que ${b.companyName} pagó la mensualidad? El vencimiento pasará al mes siguiente.`)) return;
+    await api.post(`/companies/${b.companyId}/billing/paid`).catch((e) => alert(e.message));
+    await refresh();
+  }
+
+  async function suspend(b: BillNotice) {
+    const reason = prompt(`Suspender el servicio de ${b.companyName}. Sus usuarios pierden el acceso hasta que lo reactives.\n\nMotivo:`, 'Mensualidad pendiente de pago');
+    if (reason === null) return;
+    await api.post(`/companies/${b.companyId}/suspend`, { reason }).catch((e) => alert(e.message));
+    await refresh();
+  }
 
   return (
     <div className="stack">
@@ -54,6 +73,42 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
         }
       />
       {error && <div className="alert error">{error}</div>}
+      {bills.data && bills.data.length > 0 && (
+        <div className="card bill-section">
+          <h2 className="row tight">
+            <span aria-hidden="true">🧾</span> Mensualidades por vencer o vencidas <span className="count-pill">{bills.data.length}</span>
+          </h2>
+          <div className="report-list">
+            {bills.data.map((b) => {
+              const l = billingLabel(b);
+              return (
+                <div key={b.companyId} className={`notice-row ${l.cls}-row`}>
+                  <div className="notice-main">
+                    <div className="row tight">
+                      <span className="strong">{b.companyName}</span>
+                      {!b.active && <span className="badge rejected">⏸ Suspendida</span>}
+                    </div>
+                    <div className={`small bill-text ${l.cls}`}>{l.text}</div>
+                  </div>
+                  <div className="notice-to small">
+                    {b.contactEmail ? <>Para: <b>{b.contactName || b.contactEmail}</b></> : <span className="muted">Sin correo de cobro</span>}
+                    {b.lastReminderAt && <div className="muted">Recordado {new Date(b.lastReminderAt).toLocaleDateString('es-CL')}</div>}
+                  </div>
+                  <div className="report-amount">{b.amount != null ? formatMoney(b.amount, b.currency) : '—'}</div>
+                  <div className="row tight">
+                    <button className="primary" onClick={() => setBillOpen(b)}>✉ Recordatorio</button>
+                    <button className="good" onClick={() => billPaid(b)}>✓ Pago recibido</button>
+                    {b.active && b.state === 'overdue' && (
+                      <button className="danger" onClick={() => suspend(b)}>⏸ Suspender</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {!data ? (
         <p className="muted">Cargando…</p>
       ) : (
@@ -165,6 +220,18 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
             />
           )}
         </>
+      )}
+
+      {billOpen && (
+        <NotifyModal
+          cid={billOpen.companyId}
+          id=""
+          title="Recordatorio de pago de mensualidad"
+          path={`/companies/${billOpen.companyId}/billing/notify`}
+          markPath={`/companies/${billOpen.companyId}/billing/reminded`}
+          onClose={() => setBillOpen(null)}
+          onMarked={() => void refresh()}
+        />
       )}
 
       {open && (

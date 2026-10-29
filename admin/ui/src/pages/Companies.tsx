@@ -1,12 +1,45 @@
 import { useState, type FormEvent } from 'react';
-import { CURRENCIES, CURRENCY_CODES, STATUS_LABELS, formatTotals, type Currency, type Status, type Totals } from '@rendiciones/shared';
+import { CURRENCIES, CURRENCY_CODES, STATUS_LABELS, formatMoney, formatTotals, fromMinor, toMinor, type Currency, type Status, type Totals } from '@rendiciones/shared';
 import { api } from '../api';
 import { Modal, PageHeader } from '../components';
 import { fmtDateTime, useCompany, useLoad, type CompanyRow } from '../hooks';
 
+export interface Billing {
+  dueDate: string | null;
+  billingDay: number | null;
+  amount: number | null;
+  currency: Currency;
+  contactName: string;
+  contactEmail: string;
+  notes: string;
+  lastPaidAt: string | null;
+  lastPaidFor: string | null;
+  lastReminderAt: string | null;
+  state: 'ok' | 'soon' | 'overdue' | 'none';
+  daysLeft: number | null;
+}
+
+export const fmtDay = (iso: string | null) => (iso ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : '—');
+
+/** Texto y color del estado de la mensualidad. */
+export function billingLabel(b: Billing | null | undefined) {
+  if (!b || b.state === 'none' || b.daysLeft == null) return { text: 'Sin fecha de facturación', cls: 'bill-none' };
+  if (b.state === 'overdue') return { text: `Vencida hace ${-b.daysLeft} día(s) · ${fmtDay(b.dueDate)}`, cls: 'bill-overdue' };
+  if (b.state === 'soon') return { text: b.daysLeft === 0 ? `Vence HOY · ${fmtDay(b.dueDate)}` : `Vence en ${b.daysLeft} día(s) · ${fmtDay(b.dueDate)}`, cls: 'bill-soon' };
+  return { text: `Próximo vencimiento ${fmtDay(b.dueDate)} (en ${b.daysLeft} días)`, cls: 'bill-ok' };
+}
+
 export function Companies() {
   const { companies, reloadCompanies, setCompanyId, companyId } = useCompany();
   const [editing, setEditing] = useState<CompanyRow | 'new' | null>(null);
+  const billing = useLoad<Record<string, Billing | null>>('/billing');
+
+  async function markPaid(c: CompanyRow) {
+    const b = billing.data?.[c.id];
+    if (!confirm(`¿Registrar que ${c.name} pagó la mensualidad${b?.dueDate ? ` del ${fmtDay(b.dueDate)}` : ''}? El vencimiento pasará al mes siguiente.`)) return;
+    await api.post(`/companies/${c.id}/billing/paid`).catch((e) => alert(e.message));
+    await billing.reload();
+  }
 
   async function suspend(c: CompanyRow) {
     const reason = prompt(
@@ -37,7 +70,7 @@ Motivo (solo lo ves tú):`,
       />
       <div className="grid grid-cards">
         {companies.map((c) => (
-          <div key={c.id} className={`card company-card${companyId === c.id ? ' selected' : ''}${c.active ? '' : ' suspended'}`}>
+          <div key={c.id} className={`card company-card${companyId === c.id ? ' selected' : ''}${c.active ? '' : ' suspended'} ${billingLabel(billing.data?.[c.id]).cls}-card`}>
             <div className="row spread">
               <h3 style={{ margin: 0 }}>{c.name}</h3>
               <span className={`badge ${c.active ? 'approved' : 'rejected'}`}>{c.active ? 'Activa' : '⏸ Suspendida'}</span>
@@ -45,6 +78,21 @@ Motivo (solo lo ves tú):`,
             <div className="muted small">
               Moneda base: {c.baseCurrency} · {c.activeUsers} usuario(s) activo(s)
             </div>
+            {(() => {
+              const b = billing.data?.[c.id];
+              const l = billingLabel(b);
+              return (
+                <div className={`bill-chip ${l.cls}`}>
+                  <span>🧾 {l.text}</span>
+                  {b?.amount != null && <span className="muted"> · {formatMoney(b.amount, b.currency)}</span>}
+                  {b?.dueDate && (
+                    <button className="link" onClick={() => markPaid(c)}>
+                      ✓ Pago recibido
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             {!c.active && (
               <div className="alert error small" style={{ marginTop: 8 }}>
                 Servicio suspendido{c.suspendedAt ? ` desde ${fmtDateTime(c.suspendedAt)}` : ''}
@@ -70,10 +118,11 @@ Motivo (solo lo ves tú):`,
       {editing && (
         <CompanyModal
           company={editing === 'new' ? null : editing}
+          billing={editing === 'new' ? null : billing.data?.[editing.id] ?? null}
           onClose={() => setEditing(null)}
           onSaved={async (id) => {
             setEditing(null);
-            await reloadCompanies();
+            await Promise.all([reloadCompanies(), billing.reload()]);
             if (id) setCompanyId(id);
           }}
         />
@@ -82,21 +131,37 @@ Motivo (solo lo ves tú):`,
   );
 }
 
-function CompanyModal({ company, onClose, onSaved }: { company: CompanyRow | null; onClose: () => void; onSaved: (id?: string) => void }) {
+function CompanyModal({
+  company, billing, onClose, onSaved,
+}: {
+  company: CompanyRow | null;
+  billing: Billing | null;
+  onClose: () => void;
+  onSaved: (id?: string) => void;
+}) {
   const [name, setName] = useState(company?.name ?? '');
   const [baseCurrency, setBase] = useState<Currency>(company?.baseCurrency ?? 'CLP');
+  const [dueDate, setDueDate] = useState(billing?.dueDate ?? '');
+  const [billCurrency, setBillCurrency] = useState<Currency>(billing?.currency ?? 'CLP');
+  const [amountText, setAmountText] = useState(billing?.amount != null ? fromMinor(billing.amount, billing.currency) : '');
+  const [contactName, setContactName] = useState(billing?.contactName ?? '');
+  const [contactEmail, setContactEmail] = useState(billing?.contactEmail ?? '');
   const [error, setError] = useState<string | null>(null);
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    setError(null);
+    const amount = amountText.trim() ? toMinor(amountText, billCurrency) : null;
+    if (amountText.trim() && amount == null) return setError('Monto de la mensualidad inválido.');
     try {
+      let id = company?.id;
       if (company) {
         await api.patch(`/companies/${company.id}`, { name, baseCurrency });
-        onSaved();
       } else {
-        const { id } = await api.post<{ id: string }>('/companies', { name, baseCurrency });
-        onSaved(id);
+        id = (await api.post<{ id: string }>('/companies', { name, baseCurrency })).id;
       }
+      await api.put(`/companies/${id}/billing`, { dueDate, amount, currency: billCurrency, contactName, contactEmail });
+      onSaved(company ? undefined : id);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -119,6 +184,37 @@ function CompanyModal({ company, onClose, onSaved }: { company: CompanyRow | nul
             ))}
           </select>
           <div className="hint">Los montos mínimos de los flujos de aprobación se expresan en esta moneda.</div>
+        </div>
+        <div className="card soft">
+          <h3>🧾 Facturación de tu servicio</h3>
+          <p className="hint" style={{ marginTop: -6 }}>Solo tú ves estos datos. 5 días antes del vencimiento la empresa se marca en amarillo y aparece en Notificaciones.</p>
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="bd">Próximo vencimiento</label>
+              <input id="bd" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <div className="hint">Se repite cada mes el mismo día.</div>
+            </div>
+            <div className="field">
+              <label htmlFor="ba">Mensualidad (opcional)</label>
+              <div className="row nowrap tight">
+                <select aria-label="Moneda" value={billCurrency} onChange={(e) => setBillCurrency(e.target.value as Currency)} style={{ width: 90 }}>
+                  {CURRENCY_CODES.map((c) => <option key={c}>{c}</option>)}
+                </select>
+                <input id="ba" inputMode="decimal" placeholder="Ej: 50000" value={amountText} onChange={(e) => setAmountText(e.target.value)} />
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="bn">Contacto de cobro (opcional)</label>
+              <input id="bn" maxLength={100} placeholder="Nombre" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="be">Correo de cobro (opcional)</label>
+              <input id="be" type="email" placeholder="pagos@empresa.cl" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+            </div>
+          </div>
+          {billing?.lastPaidAt && (
+            <div className="hint">Último pago registrado: {fmtDateTime(billing.lastPaidAt)} (mensualidad del {fmtDay(billing.lastPaidFor)}).</div>
+          )}
         </div>
         {error && <div className="alert error">{error}</div>}
         <div className="row modal-actions">

@@ -16,6 +16,7 @@ import {
   createUserSchema,
   decisionSchema,
   flowSchema,
+  formatMoney,
   formatTotals,
   namedEntitySchema,
   reportFilterSchema,
@@ -1089,7 +1090,8 @@ api.get(
   '/notifications/count',
   h(async (req, res) => {
     const n = await cached(`notices-${qCompany(req) ?? 'all'}`, 30_000, () => computeNotices(qCompany(req)));
-    res.json({ count: n.payer.length + n.approvers.length + n.paid.length + n.ownerTurn.length });
+    const bill = await billingNotices(qCompany(req));
+    res.json({ count: n.payer.length + n.approvers.length + n.paid.length + n.ownerTurn.length + bill.length });
   }),
 );
 
@@ -1104,5 +1106,179 @@ api.post(
     await ref.update({ lastNotice: { kind, level: snap.data()!.currentLevel ?? 0, at: FieldValue.serverTimestamp() } });
     invalidate();
     res.json({ ok: true });
+  }),
+);
+
+// ---------- Facturación del servicio (mensualidad de cada empresa) ----------
+// Se guarda en billing/{cid}: colección sin reglas de acceso → solo el panel (Admin SDK) la lee.
+const BILLING_WARN_DAYS = 5;
+const billingRef = (cid: string) => db.collection('billing').doc(cid);
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysBetween(fromIso: string, toIso: string) {
+  const a = Date.UTC(+fromIso.slice(0, 4), +fromIso.slice(5, 7) - 1, +fromIso.slice(8, 10));
+  const b = Date.UTC(+toIso.slice(0, 4), +toIso.slice(5, 7) - 1, +toIso.slice(8, 10));
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** Mismo día del mes siguiente (si no existe, el último día de ese mes). */
+function nextMonth(iso: string, day: number) {
+  let y = +iso.slice(0, 4);
+  let m = +iso.slice(5, 7) + 1;
+  if (m > 12) {
+    m = 1;
+    y++;
+  }
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${y}-${String(m).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`;
+}
+
+type BillingState = 'ok' | 'soon' | 'overdue' | 'none';
+
+function billingStatus(b: DocumentData | undefined) {
+  if (!b?.dueDate) return { state: 'none' as BillingState, daysLeft: null as number | null };
+  const daysLeft = daysBetween(todayIso(), b.dueDate);
+  const state: BillingState = daysLeft < 0 ? 'overdue' : daysLeft <= BILLING_WARN_DAYS ? 'soon' : 'ok';
+  return { state, daysLeft };
+}
+
+function serializeBilling(b: DocumentData | undefined) {
+  if (!b) return null;
+  return {
+    dueDate: (b.dueDate as string) ?? null,
+    billingDay: (b.billingDay as number) ?? null,
+    amount: (b.amount as number) ?? null,
+    currency: (b.currency as string) ?? 'CLP',
+    contactName: (b.contactName as string) ?? '',
+    contactEmail: (b.contactEmail as string) ?? '',
+    notes: (b.notes as string) ?? '',
+    lastPaidAt: tsToIso(b.lastPaidAt),
+    lastPaidFor: (b.lastPaidFor as string) ?? null,
+    lastReminderAt: tsToIso(b.lastReminderAt),
+    ...billingStatus(b),
+  };
+}
+
+async function allBilling() {
+  const snap = await db.collection('billing').get();
+  return new Map(snap.docs.map((d) => [d.id, d.data()]));
+}
+
+api.get(
+  '/billing',
+  h(async (_req, res) => {
+    const map = await allBilling();
+    res.json(Object.fromEntries([...map.entries()].map(([cid, b]) => [cid, serializeBilling(b)])));
+  }),
+);
+
+api.put(
+  '/companies/:cid/billing',
+  h(async (req, res) => {
+    await assertCompany(req.params.cid);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const dueDate = String(b.dueDate ?? '');
+    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new HttpError(400, 'Fecha de vencimiento inválida.');
+    const email = String(b.contactEmail ?? '').trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'Correo de contacto inválido.');
+    const amount = b.amount == null || b.amount === '' ? null : Number(b.amount);
+    if (amount != null && (!Number.isInteger(amount) || amount < 0)) throw new HttpError(400, 'Monto inválido.');
+    const currency = CURRENCY_CODES.includes(b.currency as Currency) ? (b.currency as Currency) : 'CLP';
+    await billingRef(req.params.cid).set(
+      {
+        dueDate: dueDate || null,
+        billingDay: dueDate ? +dueDate.slice(8, 10) : null,
+        amount,
+        currency,
+        contactName: String(b.contactName ?? '').trim().slice(0, 100),
+        contactEmail: email.slice(0, 200),
+        notes: String(b.notes ?? '').trim().slice(0, 300),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    invalidate();
+    res.json({ ok: true });
+  }),
+);
+
+/** Registra que la empresa pagó la mensualidad: el vencimiento pasa al mes siguiente. */
+api.post(
+  '/companies/:cid/billing/paid',
+  h(async (req, res) => {
+    const ref = billingRef(req.params.cid);
+    const b = (await ref.get()).data();
+    if (!b?.dueDate) throw new HttpError(400, 'Primero define la fecha de vencimiento de la empresa.');
+    const next = nextMonth(b.dueDate, b.billingDay ?? +String(b.dueDate).slice(8, 10));
+    await ref.update({ lastPaidAt: FieldValue.serverTimestamp(), lastPaidFor: b.dueDate, dueDate: next, lastReminderAt: FieldValue.delete() });
+    invalidate();
+    res.json({ ok: true, dueDate: next });
+  }),
+);
+
+api.post(
+  '/companies/:cid/billing/reminded',
+  h(async (req, res) => {
+    await billingRef(req.params.cid).set({ lastReminderAt: FieldValue.serverTimestamp() }, { merge: true });
+    invalidate();
+    res.json({ ok: true });
+  }),
+);
+
+/** Mensaje de recordatorio de pago para el contacto de la empresa. */
+api.get(
+  '/companies/:cid/billing/notify',
+  h(async (req, res) => {
+    const comp = await assertCompany(req.params.cid);
+    const b = (await billingRef(req.params.cid).get()).data();
+    if (!b?.dueDate) throw new HttpError(400, 'La empresa no tiene fecha de vencimiento.');
+    const { daysLeft } = billingStatus(b);
+    const due = String(b.dueDate);
+    const fecha = `${due.slice(8, 10)}-${due.slice(5, 7)}-${due.slice(0, 4)}`;
+    const monto = b.amount != null ? formatMoney(b.amount, b.currency ?? 'CLP') : null;
+    const overdue = (daysLeft ?? 0) < 0;
+    const subject = overdue
+      ? `Mensualidad vencida — servicio de rendiciones (${comp.name})`
+      : `Recordatorio: tu mensualidad vence el ${fecha} — servicio de rendiciones (${comp.name})`;
+    const lines = [
+      `Hola${b.contactName ? ` ${b.contactName}` : ''},`,
+      '',
+      overdue
+        ? `Te recordamos que la mensualidad del servicio de rendición de gastos de ${comp.name} venció el ${fecha} (hace ${Math.abs(daysLeft ?? 0)} día(s)).`
+        : `Te recordamos que la mensualidad del servicio de rendición de gastos de ${comp.name} vence el ${fecha} (${daysLeft === 0 ? 'hoy' : `en ${daysLeft} día(s)`}).`,
+      ...(monto ? ['', `• Monto: ${monto}`] : []),
+      '',
+      overdue
+        ? 'Para evitar la suspensión del servicio, por favor regulariza el pago a la brevedad.'
+        : 'Por favor realiza el pago antes de esa fecha para mantener el servicio activo.',
+      '',
+      'Si ya realizaste el pago, ignora este mensaje.',
+      '',
+      'Saludos,',
+      'Tomás Montes',
+    ];
+    res.json({ to: b.contactEmail ? [b.contactEmail] : [], names: b.contactName ? [b.contactName] : [], subject, body: lines.join('\n') });
+  }),
+);
+
+/** Empresas con mensualidad por vencer (≤ 5 días) o vencida, para Notificaciones. */
+async function billingNotices(onlyCid?: string) {
+  const [companies, map] = await Promise.all([db.collection('companies').get(), allBilling()]);
+  return companies.docs
+    .filter((c) => !onlyCid || c.id === onlyCid)
+    .map((c) => ({ c, b: serializeBilling(map.get(c.id)) }))
+    .filter(({ b }) => b && (b.state === 'soon' || b.state === 'overdue'))
+    .map(({ c, b }) => ({ companyId: c.id, companyName: c.data().name as string, active: c.data().active !== false, ...b! }))
+    .sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0));
+}
+
+api.get(
+  '/notifications/billing',
+  h(async (req, res) => {
+    res.json(await billingNotices(qCompany(req)));
   }),
 );
