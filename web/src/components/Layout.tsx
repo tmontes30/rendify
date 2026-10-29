@@ -2,13 +2,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth, useSession } from '../auth';
-import { listPendingForMe } from '../data';
+import { listPayments, listPendingForMe } from '../data';
 import { useEmulator } from '../firebase';
 
 export function Layout({ children }: { children: ReactNode }) {
   const { logout } = useAuth();
   const { profile, company, areaName } = useSession();
   const [pendingCount, setPendingCount] = useState(0);
+  const [toPayCount, setToPayCount] = useState(0);
   const location = useLocation();
 
   // Contador de pendientes para aprobadores (se refresca al navegar).
@@ -16,6 +17,11 @@ export function Layout({ children }: { children: ReactNode }) {
     if (!profile.isApprover) return;
     listPendingForMe(company.id, profile.uid).then((r) => setPendingCount(r.length), () => undefined);
   }, [profile.isApprover, company.id, profile.uid, location.pathname]);
+
+  useEffect(() => {
+    if (!profile.paymentsUser) return;
+    listPayments(company.id, profile.uid).then((r) => setToPayCount(r.filter((x) => x.status === 'approved').length), () => undefined);
+  }, [profile.paymentsUser, company.id, profile.uid, location.pathname]);
 
   const initials = profile.displayName
     .split(' ')
@@ -52,6 +58,13 @@ export function Layout({ children }: { children: ReactNode }) {
               <span className="nav-icon" aria-hidden="true">✓</span>
               <span>Por aprobar</span>
               {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
+            </NavLink>
+          )}
+          {profile.paymentsUser && (
+            <NavLink to="/pagos">
+              <span className="nav-icon" aria-hidden="true">💳</span>
+              <span>Pagos</span>
+              {toPayCount > 0 && <span className="nav-count">{toPayCount}</span>}
             </NavLink>
           )}
         </nav>

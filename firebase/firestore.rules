@@ -227,6 +227,28 @@ service cloud.firestore {
               && request.resource.data.currentApprovers.size() == 0)
           );
 
+        // Usuario de pagos asignado al flujo: registra el pago de una rendición
+        // aprobada por completo (no la propia). Solo cambia estado y datos del pago.
+        allow update: if member(cid)
+          && profile().paymentsUser == true
+          && resource.data.status == 'approved'
+          && resource.data.ownerUid != uid()
+          && resource.data.flowId is string
+          && flowDoc(resource.data.flowId).payerUid == uid()
+          && request.resource.data.status == 'paid'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidAt', 'updatedAt', 'payment'])
+          && request.resource.data.paidAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.payment is map
+          && request.resource.data.payment.keys().hasOnly(['uid', 'name', 'method', 'reference', 'paidOn', 'comment'])
+          && request.resource.data.payment.keys().hasAll(['uid', 'name', 'method', 'reference', 'paidOn', 'comment'])
+          && request.resource.data.payment.uid == uid()
+          && request.resource.data.payment.name == profile().displayName
+          && request.resource.data.payment.method in ['transferencia', 'efectivo', 'cheque', 'otro']
+          && str(request.resource.data.payment.reference, 0, 80)
+          && isDate(request.resource.data.payment.paidOn)
+          && str(request.resource.data.payment.comment, 0, 500);
+
         allow delete: if member(cid)
           && resource.data.ownerUid == uid()
           && resource.data.status == 'draft';

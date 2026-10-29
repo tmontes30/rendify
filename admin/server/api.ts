@@ -6,6 +6,8 @@ import {
   CURRENCY_CODES,
   DEFAULT_AREAS,
   DEFAULT_CATEGORIES,
+  PAYMENT_METHODS,
+  type PaymentMethod,
   REMINDER_HOURS,
   DOC_TYPE_LABELS,
   STATUS_LABELS,
@@ -281,6 +283,10 @@ async function buildFlow(cid: string, raw: unknown) {
     if (!d || d.companyId !== cid) throw new HttpError(400, 'Los aprobadores y quien paga deben ser usuarios de esta empresa.');
     names[s.id] = d.displayName;
   }
+  if (body.payerUid) {
+    const p = snaps.find((x) => x.id === body.payerUid)?.data();
+    if (!p?.paymentsUser) throw new HttpError(400, 'Quien paga debe tener marcada la casilla “Usuario de pagos”.');
+  }
   return {
     name: body.name,
     // El primer nivel siempre se activa.
@@ -305,6 +311,29 @@ async function assignFlowToApprovers(cid: string, fid: string, approvers: string
   }
   await batch.commit();
   return n;
+}
+
+/**
+ * Si cambia quién paga, actualiza quién puede ver las rendiciones ya enviadas de ese flujo
+ * (approverUids): agrega al nuevo y quita al anterior si ya no participa en el flujo.
+ */
+async function syncReportViewers(cid: string, fid: string, oldPayer: string | null, flow: { payerUid: string | null; allApprovers: string[] }) {
+  if (oldPayer === flow.payerUid) return;
+  const reports = await company(cid).collection('reports').where('flowId', '==', fid).get();
+  let batch = db.batch();
+  let n = 0;
+  for (const r of reports.docs) {
+    if (r.data().status === 'draft') continue;
+    let viewers = new Set<string>((r.data().approverUids as string[]) ?? []);
+    if (oldPayer && !flow.allApprovers.includes(oldPayer)) viewers.delete(oldPayer);
+    if (flow.payerUid) viewers.add(flow.payerUid);
+    batch.update(r.ref, { approverUids: [...viewers] });
+    if (++n % 400 === 0) {
+      await batch.commit();
+      batch = db.batch();
+    }
+  }
+  await batch.commit();
 }
 
 /** Marca isApprover en los usuarios de la empresa según los flujos vigentes. */
@@ -344,8 +373,10 @@ api.put(
   h(async (req, res) => {
     const ref = company(req.params.cid).collection('flows').doc(req.params.fid);
     if (!(await ref.get()).exists) throw new HttpError(404, 'Flujo no encontrado.');
+    const previous = (await ref.get()).data();
     const flow = await buildFlow(req.params.cid, req.body);
     await ref.set(flow);
+    await syncReportViewers(req.params.cid, req.params.fid, previous?.payerUid ?? null, flow);
     const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.allApprovers);
     await syncApprovers(req.params.cid);
     invalidate();
@@ -436,6 +467,7 @@ api.post(
         areaId: body.areaId,
         flowId: body.flowId,
         isApprover: false,
+        paymentsUser: body.paymentsUser,
         active: true,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -717,9 +749,19 @@ api.post(
 api.post(
   '/companies/:cid/reports/:id/pay',
   h(async (req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const method = PAYMENT_METHODS.includes(b.method as PaymentMethod) ? (b.method as PaymentMethod) : 'otro';
     await transition(req.params.cid, req.params.id, ['approved'], 'paid', (items) => ({
       totals: sumTotals(items),
       paidAt: FieldValue.serverTimestamp(),
+      payment: {
+        uid: 'owner',
+        name: 'Administración',
+        method,
+        reference: String(b.reference ?? '').slice(0, 80),
+        paidOn: /^\d{4}-\d{2}-\d{2}$/.test(String(b.paidOn)) ? String(b.paidOn) : new Date().toISOString().slice(0, 10),
+        comment: String(b.comment ?? '').slice(0, 500),
+      },
     }));
     res.json({ ok: true });
   }),

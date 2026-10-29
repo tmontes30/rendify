@@ -170,6 +170,8 @@ export interface UserProfile {
   areaId: string;
   flowId: string | null;
   isApprover: boolean;
+  /** Usuario de pagos: puede ser "quién paga" en un flujo y registrar pagos en la web. Lo marca el owner. */
+  paymentsUser?: boolean;
   active: boolean;
 }
 
@@ -205,8 +207,28 @@ export interface Report {
   decidedAt?: unknown;
   ownerReview?: { at: unknown; comment: string; decision: string };
   paidAt?: unknown;
+  /** Datos del pago registrado por el usuario de pagos (o por el owner). */
+  payment?: Payment;
   /** Último aviso por correo marcado por el owner (solo lo escribe el panel). */
   lastNotice?: { kind: 'approver' | 'payer'; level: number; at: unknown };
+}
+
+export const PAYMENT_METHODS = ['transferencia', 'efectivo', 'cheque', 'otro'] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  transferencia: 'Transferencia',
+  efectivo: 'Efectivo',
+  cheque: 'Cheque',
+  otro: 'Otro',
+};
+
+export interface Payment {
+  uid: string;
+  name: string;
+  method: PaymentMethod;
+  reference: string; // N° de comprobante / operación
+  paidOn: string; // YYYY-MM-DD
+  comment: string;
 }
 
 export interface Item {
@@ -304,6 +326,7 @@ export const createUserSchema = z.object({
   companyId: id,
   areaId: id,
   flowId: id.nullable().default(null),
+  paymentsUser: z.boolean().default(false),
   password: z.string().min(10).max(100),
 });
 
@@ -311,6 +334,7 @@ export const updateUserSchema = z.object({
   displayName: z.string().trim().min(1).max(LIMITS.name).optional(),
   areaId: id.optional(),
   flowId: id.nullable().optional(),
+  paymentsUser: z.boolean().optional(),
 });
 
 export const setPasswordSchema = z.object({ password: z.string().min(10).max(100) });

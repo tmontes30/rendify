@@ -8,6 +8,9 @@ import {
   formatTotals,
   nextRequiredLevel,
   resubmissionInfo,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  type PaymentMethod,
   sumTotals,
   type Category,
   type Flow,
@@ -15,7 +18,7 @@ import {
   type Report,
 } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories } from '../data';
+import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories, registerPayment } from '../data';
 import { StatusBadge } from '../components/StatusBadge';
 import { ResubmittedNotice } from '../components/ReportRow';
 import { ReportEditor } from './ReportEditor';
@@ -61,13 +64,17 @@ export function ReportPage() {
   if (editable && (report.status === 'draft' || editing)) return <ReportEditor key={report.id} existing={data} />;
 
   const canDecide = !isOwner && report.status === 'pending' && report.currentApprovers.includes(profile.uid);
+  const isPayerHere = !isOwner && !!profile.paymentsUser && flow?.payerUid === profile.uid;
+  const canPay = isPayerHere && report.status === 'approved';
   const catName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? cid;
   const totals = sumTotals(items);
   const nameOf = (uid: string) => flow?.approverNames?.[uid] ?? 'Aprobador';
 
   return (
     <div className="stack">
-      <Link to={isOwner ? '/' : '/aprobar'} className="back-link">← Volver</Link>
+      <Link to={isOwner ? '/' : isPayerHere && ['approved', 'paid'].includes(report.status) ? '/pagos' : '/aprobar'} className="back-link">
+        ← Volver
+      </Link>
 
       {flash === 'sent' && <div className="alert ok">✓ Rendición enviada a aprobación.</div>}
       {flash === 'saved' && <div className="alert ok">✓ Borrador guardado.</div>}
@@ -131,6 +138,8 @@ export function ReportPage() {
           <Timeline report={report} flow={flow} nameOf={nameOf} />
         </div>
       </div>
+
+      {canPay && <PaymentBox report={report} onDone={() => navigate('/pagos', { replace: true, state: { flash: 'paid' } })} />}
 
       {canDecide && (
         <DecisionBox
@@ -223,8 +232,79 @@ function Timeline({ report, flow, nameOf }: { report: Report; flow: Flow | null;
         </li>
       )}
       {report.status === 'approved' && <li className="current">Aprobada · pendiente de pago</li>}
-      {report.status === 'paid' && <li className="approved"><b>Pagada</b> · {fmtDate(report.paidAt)}</li>}
+      {report.status === 'paid' && (
+        <li className="approved">
+          <b>Pagada</b> · {fmtDate(report.paidAt)}
+          {report.payment && (
+            <div className="muted small">
+              {report.payment.name} · {PAYMENT_METHOD_LABELS[report.payment.method] ?? report.payment.method}
+              {report.payment.reference && ` · N° ${report.payment.reference}`} · fecha de pago {report.payment.paidOn}
+            </div>
+          )}
+          {report.payment?.comment && <div className="quote">“{report.payment.comment}”</div>}
+        </li>
+      )}
       {report.status === 'draft' && <li className="muted">Borrador, aún no se envía.</li>}
     </ol>
+  );
+}
+
+/** Formulario para que el usuario de pagos registre el pago de una rendición aprobada. */
+function PaymentBox({ report, onDone }: { report: Report; onDone: () => void }) {
+  const session = useSession();
+  const [method, setMethod] = useState<PaymentMethod>('transferencia');
+  const [reference, setReference] = useState('');
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function pay() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) return setErr('Indica la fecha del pago.');
+    if (!confirm(`¿Registrar el pago de ${formatTotals(report.totals)} a ${report.ownerName}?`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await registerPayment(session, report.id, { method, reference, paidOn, comment });
+      onDone();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card decision-card">
+      <h2>💳 Registrar pago</h2>
+      <p className="muted small">
+        Aprobada por completo. Monto a pagar a <b>{report.ownerName}</b>: <b>{formatTotals(report.totals)}</b>.
+      </p>
+      <div className="form-grid">
+        <div className="field">
+          <label htmlFor="pm">Método de pago</label>
+          <select id="pm" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="pr">N° de comprobante u operación</label>
+          <input id="pr" maxLength={80} placeholder="Opcional" value={reference} onChange={(e) => setReference(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="pd">Fecha de pago</label>
+          <input id="pd" type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="pc2">Comentario (opcional)</label>
+        <textarea id="pc2" maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
+      </div>
+      {err && <div className="alert error">{err}</div>}
+      <div className="row">
+        <button className="primary" disabled={busy} onClick={pay}>{busy ? 'Guardando…' : '✓ Marcar como pagada'}</button>
+      </div>
+    </div>
   );
 }

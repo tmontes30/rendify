@@ -9,6 +9,7 @@ import { ReportEditor, type RowState } from './pages/ReportEditor';
 import { Approvals } from './pages/Approvals';
 import { BulkUpload } from './pages/BulkUpload';
 import { Profile } from './pages/Profile';
+import { Payments } from './pages/Payments';
 
 /** Nueva rendición; puede venir con gastos precargados desde la carga masiva. */
 function NewReport() {
@@ -30,6 +31,7 @@ function Routed() {
         <Route path="/perfil" element={<Profile />} />
         <Route path="/r/:id" element={<ReportPage />} />
         {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
+        {state.profile.paymentsUser && <Route path="/pagos" element={<Payments />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

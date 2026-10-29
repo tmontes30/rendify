@@ -11,6 +11,7 @@ interface UserRow {
   areaId?: string;
   flowId?: string | null;
   isApprover?: boolean;
+  paymentsUser?: boolean;
   active: boolean;
   disabled: boolean;
   lastSignIn: string | null;
@@ -90,7 +91,10 @@ export function Users() {
                     <td>
                       <div className="strong">{u.displayName || '—'}</div>
                       <div className="muted small">{u.email}</div>
-                      {u.isApprover && <span className="badge info">Aprobador</span>}
+                      <div className="row tight">
+                        {u.isApprover && <span className="badge info">Aprobador</span>}
+                        {u.paymentsUser && <span className="badge approved">💳 Pagos</span>}
+                      </div>
                     </td>
                     {!companyId && <td>{u.orphan ? <span className="badge rejected">Sin empresa</span> : companyName(u.companyId)}</td>}
                     {companyId && <td>{areaName(u.areaId)}</td>}
@@ -136,6 +140,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [areaId, setAreaId] = useState(user?.areaId ?? '');
   const [flowId, setFlowId] = useState(user?.flowId ?? '');
+  const [paymentsUser, setPaymentsUser] = useState(!!user?.paymentsUser);
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +157,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
     setError(null);
     try {
       if (isNew) {
-        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, password });
+        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, paymentsUser, password });
         setCreated({ email, password });
         return;
       }
@@ -160,7 +165,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
         await api.post(`/users/${user!.uid}/profile`, { displayName, companyId, areaId: effectiveArea, flowId: flowId || null });
         return onSaved();
       }
-      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null });
+      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null, paymentsUser });
       if (password) await api.post(`/users/${user!.uid}/password`, { password });
       onSaved();
     } catch (err) {
@@ -225,6 +230,13 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
             </select>
           </div>
         </div>
+        <label className="check payments-check">
+          <input type="checkbox" checked={paymentsUser} onChange={(e) => setPaymentsUser(e.target.checked)} />
+          <span>
+            <b>💳 Usuario de pagos</b>
+            <span className="muted small"> — puede ser “quién paga” en un flujo y en su web verá la sección Pagos para registrar los pagos de las rendiciones aprobadas.</span>
+          </span>
+        </label>
         <p className="hint">
           Para que alguien <b>apruebe</b>, agrégalo como aprobador dentro de un flujo (sección “Flujos de aprobación”). Puedes crear primero
           a los aprobadores y después los flujos.

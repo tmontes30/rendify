@@ -14,7 +14,7 @@ shared/          Código común (TS puro, sin build): tipos, monedas, estados, r
 web/             App pública (React + Vite) → GitHub Pages
   src/auth.tsx   ← sesión: claims + perfil + empresa + área + flujo
   src/data.ts    ← TODAS las lecturas/escrituras a Firestore de la web
-  src/pages/     MyReports, ReportEditor (crear/editar), ReportPage (ver/decidir), Approvals, BulkUpload, Profile, Login
+  src/pages/     MyReports, ReportEditor (crear/editar), ReportPage (ver/decidir/pagar), Approvals, Payments, BulkUpload, Profile, Login
   src/components ReportRow (fila desplegable con avance), Layout (barra lateral)
 admin/           Panel del owner, SOLO local (127.0.0.1:5050)
   server/        Express + Firebase Admin SDK (salta las reglas)
@@ -51,7 +51,7 @@ Al reiniciar el panel: matar el proceso que escucha en el puerto 5050 (PowerShel
 
 ```
 users/{uid}                         perfil (fuente de verdad del acceso)
-  email, displayName, companyId, areaId, flowId|null, isApprover, isPayer, active, createdAt
+  email, displayName, companyId, areaId, flowId|null, isApprover, isPayer, paymentsUser, active, createdAt
 companies/{cid}                     name, baseCurrency, active, createdAt
   areas/{id}, categories/{id}       name, active   (al crear empresa se cargan DEFAULT_AREAS/DEFAULT_CATEGORIES)
   flows/{fid}                       name, levels[{name, minAmount, approvers[uid]}], payerUid,
@@ -60,7 +60,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
                                     totals{CUR: minor}, itemCount, currentLevel, currentApprovers[uid],
                                     approverUids[uid] (copia de flow.allApprovers al enviar), approvals[Approval],
                                     createdAt, updatedAt, submittedAt, decidedAt, ownerReview{at,comment,decision},
-                                    paidAt, lastNotice{kind,level,at}
+                                    paidAt, payment{uid,name,method,reference,paidOn,comment}, lastNotice{kind,level,at}
     items/{iid}                     date, categoryId, description, vendor, docType, docNumber, amount (entero, unidad mínima), currency
 ```
 
@@ -74,7 +74,8 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Flujo por niveles:** `levels[0]` = primero en revisar; el último = aprobación final. En el editor del panel se muestran **al revés** (arriba el más importante) porque el owner los crea de más importante a menos.
 - **Monto mínimo por nivel** (en moneda base de la empresa): el nivel se activa si el total lo alcanza; con gastos en otra moneda se activa siempre. El nivel 0 siempre se activa. `nextRequiredLevel()` lo calcula (en el navegador del aprobador, con totales recalculados desde los ítems).
 - **Nadie aprueba lo propio.** `startLevel()`: si quien envía es aprobador de su propio flujo, la rendición parte en el nivel siguiente al más alto donde aparece; si es el último nivel, parte en `levels.length` con `currentApprovers = []` → **la aprueba el owner** (se muestra "Te toca a ti").
-- **Quién paga (`payerUid`):** usuario de la empresa; está en `allApprovers` para poder leer las rendiciones del flujo, pero no aprueba. `isApprover` se calcula solo desde los niveles; `isPayer` desde `payerUid`.
+- **Quién paga (`payerUid`):** usuario de la empresa con la casilla **"Usuario de pagos"** (`paymentsUser`, la marca el owner en Usuarios; el servidor rechaza un payer sin ella). Está en `allApprovers` para leer las rendiciones del flujo, pero no aprueba. Si el owner cambia el payer de un flujo, `syncReportViewers` actualiza `approverUids` de las rendiciones ya enviadas. `isApprover` se calcula desde los niveles; `isPayer` desde `payerUid`.
+- **Pagos en la web (`/pagos`, solo `paymentsUser`):** pestañas Por pagar (`approved`) / Pagadas (`paid`) / Todas, con totales del mes. El payer del flujo registra el pago (`registerPayment`: método transferencia/efectivo/cheque/otro, N° comprobante, fecha, comentario) → `status: paid` + `payment`. Reglas: solo si `paymentsUser`, es el `payerUid` del flujo, la rendición está `approved` y no es propia. El owner también puede marcar pagada desde el panel (queda `payment.uid = 'owner'`).
 - **Asignación automática:** al guardar un flujo, sus aprobadores (y payer) sin flujo quedan con `flowId` = ese flujo.
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
@@ -86,7 +87,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 ## Seguridad (no romper)
 
 - `firebase/firestore.rules` es la barrera real de la web: deny por defecto, aislamiento por empresa, validación de campos/tipos/largos, envío solo con los aprobadores exactos del flujo y el nivel de partida exacto (`expectedStart`, desenrollado hasta 8 niveles), aprobación solo por `currentApprovers`, historial `approvals` solo se puede **agregar** (slice; ojo: `list[0:0]` da error en reglas, por eso el caso vacío va aparte), usuario solo puede cambiar su `displayName`.
-- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 21 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
+- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 26 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
 - Si se agrega una moneda: `CURRENCIES` en shared **y** `currencies()` en las reglas.
 - El panel owner escucha solo en `127.0.0.1`, exige `x-admin-token` (aleatorio por inicio, llega por `#t=` en la URL), valida Host/Origin y manda CSP. Todo lo privilegiado (usuarios, claims, flujos, catálogos, aprobación final, pagos, avisos) vive ahí.
 - La web no tiene secretos (la config Firebase es pública por diseño).
@@ -97,7 +98,6 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - Pendiente recomendado: App Check (reCAPTCHA v3, secreto `VITE_RECAPTCHA_SITE_KEY` ya soportado), restringir la API key por dominio, 2FA en las cuentas Google/GitHub del owner.
 - `approverNames` del flujo no se actualiza si un aprobador cambia su nombre en "Mi perfil" hasta que el owner vuelva a guardar el flujo.
 - Sin respaldos automáticos (solo exportar CSV desde el panel).
-- Posible mejora: vista "Por pagar" en la web para el payer (hoy solo recibe el link por correo y puede ver la rendición).
 
 ## Convenciones de trabajo
 

@@ -5,6 +5,7 @@ import {
   formatMoney,
   formatTotals,
   resubmissionInfo,
+  PAYMENT_METHOD_LABELS,
   type Approval,
   type Category,
   type Flow,
@@ -87,6 +88,9 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
                 {canDecide && (
                   <Link to={`/r/${report.id}`} className="btn primary">Revisar y decidir</Link>
                 )}
+                {!isOwner && profile.paymentsUser && report.status === 'approved' && data.flow?.payerUid === profile.uid && (
+                  <Link to={`/r/${report.id}`} className="btn primary">💳 Registrar pago</Link>
+                )}
                 <Link to={`/r/${report.id}`} className="btn">Ver detalle completo</Link>
               </div>
             </>
@@ -148,9 +152,16 @@ function Progress({ report, flow }: { report: Report; flow: Flow | null }) {
       note: rev?.comment ? `“${rev.comment}”` : undefined,
     });
   }
+  const pay = report.payment;
   steps.push({
     title: report.status === 'paid' ? 'Pagada' : 'Aprobada',
-    who: report.status === 'paid' ? fmtDate(report.paidAt) : 'Pasa a pago',
+    who:
+      report.status === 'paid'
+        ? `${fmtDate(report.paidAt)}${pay ? ` · ${PAYMENT_METHOD_LABELS[pay.method] ?? pay.method}` : ''}`
+        : flow?.payerUid
+          ? `Paga: ${nameOf(flow.payerUid)}`
+          : 'Pasa a pago',
+    note: report.status === 'paid' && pay ? `${pay.name}${pay.reference ? ` · N° ${pay.reference}` : ''}` : report.status === 'approved' ? 'Pendiente de pago' : undefined,
     state: ['approved', 'paid'].includes(report.status) ? 'done' : report.status === 'rejected' ? 'todo' : 'todo',
   });
 

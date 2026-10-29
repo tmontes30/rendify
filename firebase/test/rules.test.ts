@@ -78,7 +78,7 @@ beforeEach(async () => {
     }
     await setDoc(doc(db, 'companies', A, 'flows', 'f1'), FLOW);
     for (const x of Object.values(u) as U[]) {
-      await setDoc(doc(db, 'users', x.uid), { email: `${x.uid}@x.cl`, displayName: x.name, companyId: x.companyId, areaId: 'ventas', flowId: x.flowId, isApprover: false, active: x.active ?? true });
+      await setDoc(doc(db, 'users', x.uid), { email: `${x.uid}@x.cl`, displayName: x.name, companyId: x.companyId, areaId: 'ventas', flowId: x.flowId, isApprover: false, paymentsUser: x.uid === 'p1', active: x.active ?? true });
     }
   });
 });
@@ -259,5 +259,51 @@ describe('aprobación por niveles', () => {
         status: 'approved', currentApprovers: [], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
       }),
     );
+  });
+});
+
+describe('pagos', () => {
+  const pay = (x: U, extra: Record<string, unknown> = {}) => ({
+    status: 'paid',
+    paidAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    payment: { uid: x.uid, name: x.name, method: 'transferencia', reference: 'OP-123', paidOn: '2026-10-30', comment: '', ...extra },
+  });
+
+  beforeEach(async () => {
+    await seed('ap', u.worker, { status: 'approved', currentApprovers: [], approverUids: ['b1', 'c1', 'p1'] });
+    await seed('pe', u.worker, { status: 'pending', currentApprovers: ['b1'], approverUids: ['b1', 'c1', 'p1'] });
+  });
+
+  it('el usuario de pagos del flujo registra el pago de una aprobada', async () => {
+    await assertSucceeds(updateDoc(doc(reportsOf(u.payer), 'ap'), pay(u.payer)));
+  });
+
+  it('no paga si no está aprobada, ni cambia otros campos, ni con datos inválidos', async () => {
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'pe'), pay(u.payer)));
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'ap'), { ...pay(u.payer), totals: { CLP: 1 } }));
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'ap'), pay(u.payer, { method: 'bitcoin' })));
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'ap'), pay(u.payer, { uid: 'b1' })));
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'ap'), { ...pay(u.payer), status: 'approved' }));
+  });
+
+  it('nadie más puede marcar como pagada', async () => {
+    await assertFails(updateDoc(doc(reportsOf(u.boss), 'ap'), pay(u.boss)));
+    await assertFails(updateDoc(doc(reportsOf(u.worker), 'ap'), pay(u.worker)));
+  });
+
+  it('sin la casilla "usuario de pagos" no puede pagar aunque sea el payer del flujo', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'users', 'p1'), { paymentsUser: false });
+    });
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'ap'), pay(u.payer)));
+  });
+
+  it('no puede pagarse a sí mismo', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'users', 'p1'), { flowId: 'f1' });
+    });
+    await seed('own', u.payer, { status: 'approved', currentApprovers: [], approverUids: ['b1', 'c1', 'p1'] });
+    await assertFails(updateDoc(doc(reportsOf(u.payer), 'own'), pay(u.payer)));
   });
 });

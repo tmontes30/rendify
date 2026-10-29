@@ -5,6 +5,10 @@ import {
   formatMoney,
   formatTotals,
   resubmissionInfo,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  type Payment,
+  type PaymentMethod,
   type Approval,
   type Flow,
   type Item,
@@ -35,6 +39,7 @@ interface ReportOut {
   submittedAt: string | null;
   paidAt: string | null;
   ownerReview: { at: string | null; comment: string; decision: string } | null;
+  payment?: Payment;
 }
 interface Detail {
   report: ReportOut;
@@ -126,13 +131,16 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
   const [notify, setNotify] = useState(false);
+  const [method, setMethod] = useState<PaymentMethod>('transferencia');
+  const [reference, setReference] = useState('');
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
 
   async function act(action: 'approve' | 'reject' | 'pay', confirmText: string) {
     if (!confirm(confirmText)) return;
     setBusy(true);
     setMsg(null);
     try {
-      await api.post(`/companies/${cid}/reports/${id}/${action}`, { comment });
+      await api.post(`/companies/${cid}/reports/${id}/${action}`, action === 'pay' ? { method, reference, paidOn, comment } : { comment });
       setMsg({ type: 'ok', text: 'Listo.' });
       setComment('');
       await reload();
@@ -227,7 +235,18 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
                   {r.ownerReview.comment && <div className="muted">“{r.ownerReview.comment}”</div>}
                 </li>
               )}
-              {r.paidAt && <li className="approved"><b>Pagada</b> · {fmtDateTime(r.paidAt)}</li>}
+              {r.paidAt && (
+                <li className="approved">
+                  <b>Pagada</b> · {fmtDateTime(r.paidAt)}
+                  {r.payment && (
+                    <div className="muted">
+                      {r.payment.name} · {PAYMENT_METHOD_LABELS[r.payment.method] ?? r.payment.method}
+                      {r.payment.reference && ` · N° ${r.payment.reference}`} · fecha de pago {r.payment.paidOn}
+                      {r.payment.comment && ` · “${r.payment.comment}”`}
+                    </div>
+                  )}
+                </li>
+              )}
               {!r.approvals.length && r.status === 'draft' && <li className="muted">Aún no se envía.</li>}
             </ol>
           </div>
@@ -251,7 +270,14 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
                   </button>
                 )}
                 {r.status === 'approved' && (
-                  <button className="primary" disabled={busy} onClick={() => act('pay', '¿Marcar como pagada?')}>Marcar pagada</button>
+                  <>
+                    <select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)} style={{ width: 'auto' }} aria-label="Método de pago">
+                      {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>)}
+                    </select>
+                    <input placeholder="N° comprobante" value={reference} maxLength={80} onChange={(e) => setReference(e.target.value)} style={{ width: 160 }} />
+                    <input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} style={{ width: 'auto' }} aria-label="Fecha de pago" />
+                    <button className="primary" disabled={busy} onClick={() => act('pay', '¿Marcar como pagada?')}>Marcar pagada</button>
+                  </>
                 )}
                 <button className="danger" disabled={busy || !comment.trim()} onClick={() => act('reject', '¿Rechazar y devolver al trabajador?')}>
                   Rechazar

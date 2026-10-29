@@ -20,6 +20,7 @@ import {
   type Category,
   type Flow,
   type Item,
+  type PaymentMethod,
   type Report,
 } from '@rendiciones/shared';
 import { db } from './firebase';
@@ -204,4 +205,44 @@ export function friendlyError(e: unknown): string {
   if (code.includes('unavailable')) return 'Sin conexión. Revisa tu internet e inténtalo de nuevo.';
   if (code.includes('failed-precondition')) return 'La base de datos está terminando de prepararse. Inténtalo en unos minutos.';
   return 'Ocurrió un error inesperado. Inténtalo de nuevo.';
+}
+
+// ---------- Pagos (usuario de pagos) ----------
+
+/** Flujos de la empresa donde este usuario es "quién paga". */
+export async function flowsIPay(cid: string, uid: string): Promise<Flow[]> {
+  const snap = await getDocs(query(collection(db, 'companies', cid, 'flows'), where('payerUid', '==', uid)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Flow);
+}
+
+/** Rendiciones aprobadas o pagadas de los flujos que paga este usuario (sin las propias). */
+export async function listPayments(cid: string, uid: string): Promise<Report[]> {
+  const [flows, snap] = await Promise.all([
+    flowsIPay(cid, uid),
+    getDocs(query(reportsCol(cid), where('approverUids', 'array-contains', uid))),
+  ]);
+  const mine = new Set(flows.map((f) => f.id));
+  return asReports(snap.docs).filter(
+    (r) => r.flowId && mine.has(r.flowId) && r.ownerUid !== uid && (r.status === 'approved' || r.status === 'paid'),
+  );
+}
+
+export async function registerPayment(
+  s: Session,
+  reportId: string,
+  data: { method: PaymentMethod; reference: string; paidOn: string; comment: string },
+) {
+  await updateDoc(doc(db, 'companies', s.company.id, 'reports', reportId), {
+    status: 'paid',
+    paidAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    payment: {
+      uid: s.profile.uid,
+      name: s.profile.displayName,
+      method: data.method,
+      reference: data.reference.trim().slice(0, 80),
+      paidOn: data.paidOn,
+      comment: data.comment.trim().slice(0, 500),
+    },
+  });
 }

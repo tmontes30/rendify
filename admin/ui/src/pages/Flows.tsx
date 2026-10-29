@@ -11,6 +11,7 @@ interface UserLite {
   active: boolean;
   areaId: string;
   flowId: string | null;
+  paymentsUser?: boolean;
 }
 
 export function Flows() {
@@ -235,12 +236,15 @@ function FlowModal({
           <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
             <select value={payerUid} onChange={(e) => setPayerUid(e.target.value)} aria-label="Quién paga">
               <option value="">— Elegir persona —</option>
-              {users.map((u) => (
+              {users.filter((u) => u.paymentsUser || u.uid === payerUid).map((u) => (
                 <option key={u.uid} value={u.uid}>
                   {u.displayName} · {areaName(u.areaId)} · {u.email}
                 </option>
               ))}
             </select>
+            {!users.some((u) => u.paymentsUser) && (
+              <div className="hint">Nadie tiene marcada la casilla “Usuario de pagos”. Márcala en Usuarios → Editar.</div>
+            )}
           </div>
         </div>
         <div className="level-link" aria-hidden="true">↑ cuando todos aprueban, pasa a pago</div>
