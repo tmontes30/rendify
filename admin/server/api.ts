@@ -1282,3 +1282,299 @@ api.get(
     res.json(await billingNotices(qCompany(req)));
   }),
 );
+
+// ---------- Insights: uso de la plataforma y pendientes críticos del owner ----------
+const DAY = 86_400_000;
+
+interface Alert {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  count: number;
+  page: string; // sección del panel donde se resuelve
+  items?: string[];
+}
+
+/** Lunes (UTC) de la semana de un instante, como YYYY-MM-DD. */
+function weekKey(t: number) {
+  const d = new Date(t);
+  const day = (d.getUTCDay() + 6) % 7;
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
+  return monday.toISOString().slice(0, 10);
+}
+
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+api.get(
+  '/insights',
+  h(async (req, res) => {
+    const onlyCid = qCompany(req);
+    const now = Date.now();
+    const [companiesSnap, usersSnap, authUsers, flowsSnap, reportsSnap, billingMap, notices, bills] = await Promise.all([
+      db.collection('companies').get(),
+      db.collection('users').get(),
+      listAllAuthUsers(),
+      db.collectionGroup('flows').get(),
+      db.collectionGroup('reports').get(),
+      allBilling(),
+      computeNotices(onlyCid),
+      billingNotices(onlyCid),
+    ]);
+    const companies = companiesSnap.docs.filter((c) => !onlyCid || c.id === onlyCid);
+    const cids = new Set(companies.map((c) => c.id));
+    const companyName = new Map(companiesSnap.docs.map((c) => [c.id, c.data().name as string]));
+    const lastSignIn = new Map(authUsers.map((a) => [a.uid, a.metadata.lastSignInTime ? Date.parse(a.metadata.lastSignInTime) : 0]));
+    const createdAtAuth = new Map(authUsers.map((a) => [a.uid, a.metadata.creationTime ? Date.parse(a.metadata.creationTime) : 0]));
+    const users = usersSnap.docs.map((d) => ({ uid: d.id, ...(d.data() as Record<string, unknown>) }) as Record<string, any> & { uid: string });
+    const scopedUsers = users.filter((u) => cids.has(u.companyId));
+    const activeUsers = scopedUsers.filter((u) => u.active);
+    const flows = flowsSnap.docs
+      .map((f) => ({ id: f.id, cid: f.ref.parent.parent!.id, ...(f.data() as Record<string, any>) }) as Record<string, any> & { id: string; cid: string })
+      .filter((f) => cids.has(f.cid));
+    const reports = reportsSnap.docs
+      .map((d) => ({ id: d.id, cid: d.ref.parent.parent!.id, ...(d.data() as Record<string, any>) }) as Record<string, any> & { id: string; cid: string })
+      .filter((r) => cids.has(r.cid));
+    const nameOf = (uid: string) => (users.find((u) => u.uid === uid)?.displayName as string) ?? uid;
+
+    // ---- Pendientes críticos ----
+    const alerts: Alert[] = [];
+    const push = (a: Alert) => a.count > 0 && alerts.push(a);
+
+    push({
+      id: 'notices',
+      severity: 'critical',
+      title: 'Avisos por correo sin enviar',
+      detail: `${notices.payer.length} a quien paga · ${notices.approvers.length} a aprobadores (+24 h) · ${notices.paid.length} de pagos a trabajadores`,
+      count: notices.payer.length + notices.approvers.length + notices.paid.length,
+      page: 'notificaciones',
+    });
+    push({
+      id: 'ownerTurn',
+      severity: 'critical',
+      title: 'Rendiciones esperando TU aprobación',
+      detail: 'Las envió el último nivel de su flujo.',
+      count: notices.ownerTurn.length,
+      page: 'rendiciones',
+      items: notices.ownerTurn.map((n) => `${n.companyName}: ${n.title} (${n.ownerName})`),
+    });
+    const overdueBills = bills.filter((b) => b.state === 'overdue');
+    push({
+      id: 'billOverdue',
+      severity: 'critical',
+      title: 'Mensualidades vencidas',
+      detail: 'Cobra, registra el pago o suspende el servicio.',
+      count: overdueBills.length,
+      page: 'empresas',
+      items: overdueBills.map((b) => `${b.companyName}: vencida hace ${-(b.daysLeft ?? 0)} día(s)${b.active ? '' : ' (suspendida)'}`),
+    });
+    const soonBills = bills.filter((b) => b.state === 'soon');
+    push({
+      id: 'billSoon',
+      severity: 'warning',
+      title: 'Mensualidades por vencer (≤ 5 días)',
+      detail: 'Envía el recordatorio de cobro.',
+      count: soonBills.length,
+      page: 'notificaciones',
+      items: soonBills.map((b) => `${b.companyName}: vence en ${b.daysLeft} día(s)`),
+    });
+    const flowsNoPayer = flows.filter((f) => !f.payerUid);
+    push({
+      id: 'flowNoPayer',
+      severity: 'warning',
+      title: 'Flujos sin “quién paga”',
+      detail: 'Nadie recibirá las rendiciones aprobadas para pagarlas.',
+      count: flowsNoPayer.length,
+      page: 'flujos',
+      items: flowsNoPayer.map((f) => `${companyName.get(f.cid)}: ${f.name}`),
+    });
+    const payerUids = new Set(flows.map((f) => f.payerUid).filter(Boolean));
+    const payUsersUnassigned = activeUsers.filter((u) => u.paymentsUser && !payerUids.has(u.uid));
+    push({
+      id: 'payUserUnassigned',
+      severity: 'warning',
+      title: 'Usuarios de pagos sin flujo asignado',
+      detail: 'Tienen la casilla de pagos pero no son “quién paga” en ningún flujo: no verán nada.',
+      count: payUsersUnassigned.length,
+      page: 'flujos',
+      items: payUsersUnassigned.map((u) => `${companyName.get(u.companyId)}: ${u.displayName}`),
+    });
+    const noFlow = activeUsers.filter((u) => !u.flowId && !u.paymentsUser);
+    push({
+      id: 'usersNoFlow',
+      severity: 'warning',
+      title: 'Personas sin flujo de aprobación',
+      detail: 'No pueden enviar rendiciones.',
+      count: noFlow.length,
+      page: 'usuarios',
+      items: noFlow.map((u) => `${companyName.get(u.companyId)}: ${u.displayName}`),
+    });
+    const companiesNoFlow = companies.filter((c) => c.data().active !== false && !flows.some((f) => f.cid === c.id));
+    push({
+      id: 'companyNoFlow',
+      severity: 'warning',
+      title: 'Empresas sin flujos de aprobación',
+      detail: 'Nadie de la empresa puede enviar rendiciones.',
+      count: companiesNoFlow.length,
+      page: 'flujos',
+      items: companiesNoFlow.map((c) => c.data().name as string),
+    });
+    const stuck = reports.filter((r) => r.status === 'pending' && now - Math.max(ms(r.submittedAt), ms(r.decidedAt)) > 3 * DAY);
+    push({
+      id: 'stuck',
+      severity: 'warning',
+      title: 'Rendiciones atascadas (+3 días en el mismo nivel)',
+      detail: 'Considera escribir directamente al aprobador o aprobar tú.',
+      count: stuck.length,
+      page: 'rendiciones',
+      items: stuck.map((r) => `${companyName.get(r.cid)}: ${r.title} (${r.ownerName}) · ${Math.floor((now - Math.max(ms(r.submittedAt), ms(r.decidedAt))) / DAY)} días`),
+    });
+    const unpaid = reports.filter((r) => r.status === 'approved' && now - Math.max(ms(r.decidedAt), ms(r.ownerReview?.at)) > 7 * DAY);
+    push({
+      id: 'unpaid',
+      severity: 'warning',
+      title: 'Aprobadas sin pagar hace más de 7 días',
+      detail: 'Revisa con quien paga.',
+      count: unpaid.length,
+      page: 'rendiciones',
+      items: unpaid.map((r) => `${companyName.get(r.cid)}: ${r.title} (${r.ownerName})`),
+    });
+    const noBilling = companies.filter((c) => !billingMap.get(c.id)?.dueDate);
+    push({
+      id: 'noBilling',
+      severity: 'info',
+      title: 'Empresas sin fecha de facturación',
+      detail: 'Define el vencimiento de la mensualidad para recibir alertas de cobro.',
+      count: noBilling.length,
+      page: 'empresas',
+      items: noBilling.map((c) => c.data().name as string),
+    });
+    const neverIn = activeUsers.filter((u) => !lastSignIn.get(u.uid) && now - (createdAtAuth.get(u.uid) ?? now) > 3 * DAY);
+    push({
+      id: 'neverIn',
+      severity: 'info',
+      title: 'Personas que nunca han ingresado (creadas hace +3 días)',
+      detail: 'Puede que no recibieran su usuario y clave.',
+      count: neverIn.length,
+      page: 'usuarios',
+      items: neverIn.map((u) => `${companyName.get(u.companyId)}: ${u.displayName} (${u.email})`),
+    });
+    if (!onlyCid) {
+      const orphans = authUsers.filter((a) => !users.some((u) => u.uid === a.uid));
+      push({
+        id: 'orphans',
+        severity: 'info',
+        title: 'Cuentas sin empresa',
+        detail: 'Existen en el login pero no tienen acceso. Asígnalas o deshabilítalas.',
+        count: orphans.length,
+        page: 'usuarios',
+        items: orphans.map((a) => a.email ?? a.uid),
+      });
+    }
+    const sevOrder = { critical: 0, warning: 1, info: 2 };
+    alerts.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
+
+    // ---- Uso ----
+    const active7 = activeUsers.filter((u) => now - (lastSignIn.get(u.uid) ?? 0) < 7 * DAY).length;
+    const active30 = activeUsers.filter((u) => now - (lastSignIn.get(u.uid) ?? 0) < 30 * DAY).length;
+    const sent = reports.filter((r) => r.status !== 'draft');
+    const sent30 = sent.filter((r) => now - ms(r.submittedAt) < 30 * DAY).length;
+
+    // Tiempos: de envío a aprobación final, y de aprobación a pago (ronda actual).
+    const approvalHours: number[] = [];
+    const paymentHours: number[] = [];
+    const perApprover = new Map<string, number[]>();
+    for (const r of sent) {
+      const sub = ms(r.submittedAt);
+      const done = Math.max(ms(r.decidedAt), ms(r.ownerReview?.at));
+      if (['approved', 'paid'].includes(r.status) && sub && done > sub) approvalHours.push((done - sub) / 3_600_000);
+      if (r.status === 'paid' && ms(r.paidAt) && done) paymentHours.push((ms(r.paidAt) - done) / 3_600_000);
+      // Tiempo de cada aprobador en la ronda actual (desde el evento anterior).
+      const appr = (r.approvals ?? []) as { uid: string; decision: string; atMs: number }[];
+      const rejIdx = appr.flatMap((a, i) => (a.decision === 'rejected' ? [i] : []));
+      if (r.status === 'rejected') rejIdx.pop(); // el rechazo actual pertenece a esta ronda
+      const start = rejIdx.length ? rejIdx[rejIdx.length - 1] + 1 : 0;
+      let prev = sub;
+      for (const a of appr.slice(start)) {
+        if (prev && a.atMs > prev) {
+          const arr = perApprover.get(a.uid) ?? [];
+          arr.push((a.atMs - prev) / 3_600_000);
+          perApprover.set(a.uid, arr);
+        }
+        prev = a.atMs;
+      }
+    }
+
+    // Serie semanal (últimas 12 semanas) de rendiciones enviadas.
+    const weeks: { week: string; sent: number }[] = [];
+    for (let i = 11; i >= 0; i--) weeks.push({ week: weekKey(now - i * 7 * DAY), sent: 0 });
+    for (const r of sent) {
+      const k = weekKey(ms(r.submittedAt) || ms(r.createdAt));
+      const w = weeks.find((x) => x.week === k);
+      if (w) w.sent++;
+    }
+
+    // Por empresa
+    const byCompany = companies.map((c) => {
+      const us = activeUsers.filter((u) => u.companyId === c.id);
+      const rs = reports.filter((r) => r.cid === c.id);
+      const lastUse = Math.max(0, ...rs.map((r) => ms(r.updatedAt)), ...us.map((u) => lastSignIn.get(u.uid) ?? 0));
+      return {
+        companyId: c.id,
+        name: c.data().name as string,
+        active: c.data().active !== false,
+        users: us.length,
+        active30: us.filter((u) => now - (lastSignIn.get(u.uid) ?? 0) < 30 * DAY).length,
+        reports30: rs.filter((r) => r.status !== 'draft' && now - ms(r.submittedAt) < 30 * DAY).length,
+        reportsTotal: rs.filter((r) => r.status !== 'draft').length,
+        pending: rs.filter((r) => r.status === 'pending').length,
+        toPay: rs.filter((r) => r.status === 'approved').length,
+        lastUse: lastUse ? new Date(lastUse).toISOString() : null,
+      };
+    });
+
+    // Por usuario (los que más rinden y su actividad)
+    const byUser = activeUsers
+      .map((u) => {
+        const rs = reports.filter((r) => r.ownerUid === u.uid && r.status !== 'draft');
+        const decisions = reports.reduce((n, r) => n + ((r.approvals ?? []) as { uid: string }[]).filter((a) => a.uid === u.uid).length, 0);
+        const paid = reports.filter((r) => r.payment?.uid === u.uid).length;
+        const ls = lastSignIn.get(u.uid) ?? 0;
+        return {
+          uid: u.uid,
+          name: u.displayName as string,
+          company: companyName.get(u.companyId) ?? '',
+          role: u.paymentsUser ? 'Pagos' : u.isApprover ? 'Aprobador' : 'Trabajador',
+          reports: rs.length,
+          reports30: rs.filter((r) => now - ms(r.submittedAt) < 30 * DAY).length,
+          decisions,
+          paid,
+          lastSignIn: ls ? new Date(ls).toISOString() : null,
+        };
+      })
+      .sort((a, b) => b.reports + b.decisions + b.paid - (a.reports + a.decisions + a.paid));
+
+    const approverSpeed = [...perApprover.entries()]
+      .map(([uid, hs]) => ({ uid, name: nameOf(uid), decisions: hs.length, avgHours: avg(hs)! }))
+      .sort((a, b) => b.avgHours - a.avgHours);
+
+    res.json({
+      alerts,
+      kpis: {
+        users: activeUsers.length,
+        active7,
+        active30,
+        companies: companies.length,
+        companiesActive: companies.filter((c) => c.data().active !== false).length,
+        sent30,
+        sentTotal: sent.length,
+        avgApprovalHours: avg(approvalHours),
+        avgPaymentHours: avg(paymentHours),
+      },
+      weeks,
+      byCompany,
+      byUser,
+      approverSpeed,
+    });
+  }),
+);

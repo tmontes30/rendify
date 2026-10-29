@@ -3,6 +3,7 @@ import { CURRENCY_CODES, formatMoney, formatTotals, type Currency, type Status, 
 import { api, qs } from '../api';
 import { useCompany, useLoad } from '../hooks';
 import { PageHeader } from '../components';
+import { Insights } from './Insights';
 
 interface Row { key: string; totals: Totals }
 interface DashboardData {
@@ -45,6 +46,8 @@ export function Dashboard() {
   return (
     <div className="stack">
       <PageHeader title="Panel" subtitle={companyId ? companyName(companyId) : 'Todas las empresas'} />
+      <Insights />
+      <h2 className="section-title">Gasto rendido</h2>
       <div className="card toolbar">
         <div className="row">
           <div className="field" style={{ marginBottom: 0 }}>
