@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import {
   nextRequiredLevel,
+  startLevel,
   sumTotals,
   type Approval,
   type Category,
@@ -124,13 +125,14 @@ export async function saveReport(
   const base = { title: header.title.trim(), periodFrom: header.periodFrom, periodTo: header.periodTo, totals, itemCount: rows.length, updatedAt: serverTimestamp() };
   // Al enviar se lee el flujo vigente (el owner pudo haberlo cambiado).
   const flow = submit && s.profile.flowId ? await getFlow(cid, s.profile.flowId) : null;
+  const start = flow ? startLevel(flow.levels, s.profile.uid) : 0;
   const flowFields =
     submit && flow
       ? {
           status: 'pending',
           flowId: flow.id,
-          currentLevel: 0,
-          currentApprovers: flow.levels[0].approvers,
+          currentLevel: start,
+          currentApprovers: flow.levels[start]?.approvers ?? [], // vacío = la aprueba el owner
           approverUids: flow.allApprovers,
           submittedAt: serverTimestamp(),
         }

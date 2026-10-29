@@ -109,6 +109,18 @@ export const LIMITS = {
   maxApproversPerLevel: 20,
 } as const;
 
+// ---------- Listas base para empresas nuevas ----------
+export const DEFAULT_AREAS = [
+  'Administración', 'Comercial', 'Finanzas', 'Gerencia', 'Logística', 'Marketing',
+  'Operaciones', 'Proveedores', 'Recursos Humanos', 'TI', 'Ventas',
+];
+
+export const DEFAULT_CATEGORIES = [
+  'Almuerzo', 'Alojamiento', 'Atención a clientes', 'Bencina', 'Capacitación', 'Courier y envíos',
+  'Estacionamiento', 'Insumos', 'Materiales de oficina', 'Peajes', 'Software y suscripciones',
+  'Telefonía e internet', 'Transporte', 'Viaje Trabajo', 'Otros',
+];
+
 // ---------- Modelos ----------
 export interface Company {
   id: string;
@@ -220,6 +232,17 @@ export function nextRequiredLevel(
     if (l.minAmount <= 0 || hasForeign || base >= l.minAmount) return i;
   }
   return null;
+}
+
+/**
+ * Nivel en que parte una rendición al enviarla. Si quien envía es aprobador
+ * dentro de su propio flujo, parte en el nivel siguiente al más alto donde aparece
+ * (nadie aprueba lo propio). Si es el último nivel, parte en levels.length:
+ * sin aprobadores, la aprueba el owner.
+ */
+export function startLevel(levels: FlowLevel[], uid: string): number {
+  for (let i = levels.length - 1; i >= 0; i--) if (levels[i].approvers.includes(uid)) return i + 1;
+  return 0;
 }
 
 // ---------- Validaciones para la app de administración ----------

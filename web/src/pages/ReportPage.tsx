@@ -200,11 +200,14 @@ function Timeline({ report, flow, nameOf }: { report: Report; flow: Flow | null;
           {a.comment && <div className="quote">“{a.comment}”</div>}
         </li>
       ))}
-      {report.status === 'pending' && (
+      {report.status === 'pending' && report.currentApprovers.length > 0 && (
         <li className="current">
           Esperando a <b>{report.currentApprovers.map(nameOf).join(' o ')}</b>
           <span className="muted"> ({flow?.levels[report.currentLevel]?.name ?? `Nivel ${report.currentLevel + 1}`})</span>
         </li>
+      )}
+      {report.status === 'pending' && report.currentApprovers.length === 0 && (
+        <li className="current">Esperando aprobación de <b>Administración</b></li>
       )}
       {report.ownerReview && (
         <li className={report.ownerReview.decision}>

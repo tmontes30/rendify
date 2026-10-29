@@ -8,6 +8,7 @@ import {
   LIMITS,
   formatTotals,
   fromMinor,
+  startLevel,
   sumTotals,
   toMinor,
   type Category,
@@ -126,7 +127,9 @@ export function ReportEditor({
   const totals = sumTotals(valid);
   const dates = valid.map((v) => v.date).sort();
   const period = dates.length ? { from: dates[0], to: dates[dates.length - 1] } : { from: today(), to: today() };
-  const firstApprovers = flow?.levels[0]?.approvers.map((u) => flow.approverNames?.[u] ?? '').filter(Boolean) ?? [];
+  const start = flow ? startLevel(flow.levels, session.profile.uid) : 0;
+  const firstApprovers = flow?.levels[start]?.approvers.map((u) => flow.approverNames?.[u] ?? '').filter(Boolean) ?? [];
+  const toOwner = !!flow && start >= flow.levels.length;
 
   const update = (key: string, patch: Partial<RowState>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const addRow = () => {
@@ -305,7 +308,7 @@ export function ReportEditor({
             <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
             <span>
               Confirmo que los gastos son correctos y quiero enviar esta rendición a aprobación
-              {firstApprovers.length ? <> de <b>{firstApprovers.join(' o ')}</b></> : null}.
+              {toOwner ? <> de <b>Administración</b></> : firstApprovers.length ? <> de <b>{firstApprovers.join(' o ')}</b></> : null}.
             </span>
           </label>
         ) : (

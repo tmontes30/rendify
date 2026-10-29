@@ -4,6 +4,8 @@ import type { z } from 'zod';
 import {
   CURRENCIES,
   CURRENCY_CODES,
+  DEFAULT_AREAS,
+  DEFAULT_CATEGORIES,
   DOC_TYPE_LABELS,
   STATUS_LABELS,
   companySchema,
@@ -128,6 +130,7 @@ api.post(
     const body = parse(companySchema, req.body);
     const id = await uniqueId(db.collection('companies'), body.name);
     await company(id).set({ name: body.name, baseCurrency: body.baseCurrency, active: true, createdAt: FieldValue.serverTimestamp() });
+    await seedDefaults(id);
     invalidate();
     res.status(201).json({ id });
   }),
@@ -141,6 +144,34 @@ api.patch(
     await company(req.params.cid).update({ ...body });
     invalidate();
     res.json({ ok: true });
+  }),
+);
+
+/** Agrega las áreas y categorías base que falten (no toca las existentes). */
+async function seedDefaults(cid: string) {
+  let added = 0;
+  for (const [coll, names] of [['areas', DEFAULT_AREAS], ['categories', DEFAULT_CATEGORIES]] as const) {
+    const col = company(cid).collection(coll);
+    const existing = new Set((await col.get()).docs.map((d) => slugify(d.data().name as string)));
+    const batch = db.batch();
+    for (const name of names) {
+      const id = slugify(name);
+      if (existing.has(id)) continue;
+      batch.set(col.doc(id), { name, active: true }, { merge: true });
+      added++;
+    }
+    await batch.commit();
+  }
+  return added;
+}
+
+api.post(
+  '/companies/:cid/seed-defaults',
+  h(async (req, res) => {
+    await assertCompany(req.params.cid);
+    const added = await seedDefaults(req.params.cid);
+    invalidate();
+    res.json({ added });
   }),
 );
 
@@ -209,6 +240,21 @@ async function buildFlow(cid: string, raw: unknown) {
   };
 }
 
+/** Asigna este flujo a sus aprobadores que aún no tienen flujo. Devuelve cuántos. */
+async function assignFlowToApprovers(cid: string, fid: string, approvers: string[]) {
+  const snaps = await Promise.all(approvers.map((u) => db.collection('users').doc(u).get()));
+  const batch = db.batch();
+  let n = 0;
+  for (const s of snaps) {
+    if (s.exists && s.data()!.companyId === cid && !s.data()!.flowId) {
+      batch.update(s.ref, { flowId: fid });
+      n++;
+    }
+  }
+  await batch.commit();
+  return n;
+}
+
 /** Marca isApprover en los usuarios de la empresa según los flujos vigentes. */
 async function syncApprovers(cid: string) {
   const [flows, users] = await Promise.all([
@@ -232,9 +278,10 @@ api.post(
     const col = company(req.params.cid).collection('flows');
     const id = await uniqueId(col, flow.name);
     await col.doc(id).set(flow);
+    const assigned = await assignFlowToApprovers(req.params.cid, id, flow.allApprovers);
     await syncApprovers(req.params.cid);
     invalidate();
-    res.status(201).json({ id });
+    res.status(201).json({ id, assigned });
   }),
 );
 
@@ -243,10 +290,12 @@ api.put(
   h(async (req, res) => {
     const ref = company(req.params.cid).collection('flows').doc(req.params.fid);
     if (!(await ref.get()).exists) throw new HttpError(404, 'Flujo no encontrado.');
-    await ref.set(await buildFlow(req.params.cid, req.body));
+    const flow = await buildFlow(req.params.cid, req.body);
+    await ref.set(flow);
+    const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.allApprovers);
     await syncApprovers(req.params.cid);
     invalidate();
-    res.json({ ok: true });
+    res.json({ ok: true, assigned });
   }),
 );
 
@@ -505,7 +554,8 @@ api.get(
     let lines: string[];
     if (r.status === 'pending') {
       const flow = r.flowId ? (await company(cid).collection('flows').doc(r.flowId).get()).data() : undefined;
-      const levelName = flow?.levels?.[r.currentLevel]?.name ?? `Nivel ${r.currentLevel + 1}`;
+      const toOwner = !r.currentApprovers.length;
+      const levelName = toOwner ? 'aprobación final de Administración' : flow?.levels?.[r.currentLevel]?.name ?? `Nivel ${r.currentLevel + 1}`;
       toUids = r.currentApprovers;
       subject = `[${comp.name}] Rendición pendiente de tu aprobación: ${r.title}`;
       lines = [

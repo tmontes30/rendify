@@ -208,6 +208,25 @@ describe('aprobación por niveles', () => {
     );
   });
 
+  it('aprobador que rinde: parte en el nivel siguiente al suyo, o va al owner si es el último', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'users', 'b1'), { flowId: 'f1' });
+      await updateDoc(doc(ctx.firestore(), 'users', 'c1'), { flowId: 'f1' });
+    });
+    const sub = (x: U, level: number, approvers: string[]) =>
+      draft(x, { ...pendingFields(), currentLevel: level, currentApprovers: approvers });
+    // Jefe (nivel 1): debe partir en Finanzas, no en su propio nivel ni saltarse el siguiente
+    await assertFails(setDoc(doc(reportsOf(u.boss), 'b-a'), sub(u.boss, 0, ['b1'])));
+    await assertFails(setDoc(doc(reportsOf(u.boss), 'b-b'), sub(u.boss, 2, [])));
+    await assertSucceeds(setDoc(doc(reportsOf(u.boss), 'b-ok'), sub(u.boss, 1, ['c1'])));
+    // Finanzas (último nivel): queda sin aprobadores para el owner
+    await assertFails(setDoc(doc(reportsOf(u.cfo), 'c-a'), sub(u.cfo, 1, ['c1'])));
+    await assertSucceeds(setDoc(doc(reportsOf(u.cfo), 'c-ok'), sub(u.cfo, 2, [])));
+    // Un trabajador normal no puede usar estos atajos
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'w-a'), sub(u.worker, 2, [])));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'w-b'), sub(u.worker, 1, ['c1'])));
+  });
+
   it('un aprobador no aprueba su propia rendición', async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       await updateDoc(doc(ctx.firestore(), 'users', 'b1'), { flowId: 'f1' });

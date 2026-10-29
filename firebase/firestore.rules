@@ -94,14 +94,30 @@ service cloud.firestore {
             && d.itemCount <= 200;
         }
 
-        // Al enviar: el flujo debe ser el asignado al usuario y los aprobadores
-        // deben ser exactamente los del primer nivel del flujo.
+        function inLevel(levels, i) {
+          return levels.size() > i && uid() in levels[i].approvers;
+        }
+
+        // Nivel de partida: 0, o el siguiente al nivel más alto donde quien envía
+        // es aprobador (nadie aprueba lo propio). Máximo 8 niveles.
+        function expectedStart(levels) {
+          return inLevel(levels, 7) ? 8 : inLevel(levels, 6) ? 7 : inLevel(levels, 5) ? 6
+            : inLevel(levels, 4) ? 5 : inLevel(levels, 3) ? 4 : inLevel(levels, 2) ? 3
+            : inLevel(levels, 1) ? 2 : inLevel(levels, 0) ? 1 : 0;
+        }
+
+        // Al enviar: el flujo debe ser el asignado al usuario, la rendición parte en
+        // el nivel que corresponde y los aprobadores son exactamente los de ese nivel.
+        // Si quien envía está en el último nivel, queda sin aprobadores (la aprueba el owner).
         function validSubmission(d) {
           return d.flowId is string
             && d.flowId == profile().flowId
             && flowDoc(d.flowId).levels.size() > 0
-            && d.currentLevel == 0
-            && d.currentApprovers == flowDoc(d.flowId).levels[0].approvers
+            && d.currentLevel == expectedStart(flowDoc(d.flowId).levels)
+            && ((d.currentLevel < flowDoc(d.flowId).levels.size()
+                 && d.currentApprovers == flowDoc(d.flowId).levels[d.currentLevel].approvers)
+                || (d.currentLevel == flowDoc(d.flowId).levels.size()
+                 && d.currentApprovers.size() == 0))
             && d.approverUids == flowDoc(d.flowId).allApprovers
             && d.itemCount > 0
             && d.submittedAt == request.time;

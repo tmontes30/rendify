@@ -97,7 +97,9 @@ export function Reports() {
                   <td className="hide-sm small">{r.periodFrom} → {r.periodTo}</td>
                   <td>
                     <span className={`badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
-                    {r.status === 'pending' && <div className="muted small">Nivel {r.currentLevel + 1}</div>}
+                    {r.status === 'pending' && (
+                      <div className="muted small">{r.currentApprovers.length ? `Nivel ${r.currentLevel + 1}` : 'Te toca a ti'}</div>
+                    )}
                   </td>
                   <td className="num">{formatTotals(r.totals)}</td>
                 </tr>
@@ -205,9 +207,14 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
                   {a.comment && <div className="muted">“{a.comment}”</div>}
                 </li>
               ))}
-              {r.status === 'pending' && (
+              {r.status === 'pending' && r.currentApprovers.length > 0 && (
                 <li className="current">
-                  Esperando a <b>{r.currentApprovers.map(approverName).join(', ') || '—'}</b> ({levelName(r.currentLevel)})
+                  Esperando a <b>{r.currentApprovers.map(approverName).join(', ')}</b> ({levelName(r.currentLevel)})
+                </li>
+              )}
+              {r.status === 'pending' && r.currentApprovers.length === 0 && (
+                <li className="current">
+                  Esperando <b>tu aprobación</b> (quien la envió es el último nivel de su flujo)
                 </li>
               )}
               {r.ownerReview && (

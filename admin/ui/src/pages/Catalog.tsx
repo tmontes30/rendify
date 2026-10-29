@@ -14,15 +14,38 @@ export function Catalog() {
   return (
     <div className="stack">
       <PageHeader title="Áreas y categorías" subtitle={companyId ? companyName(companyId) : undefined} />
-      <NeedsCompany>
-        {(cid) => (
-          <div className="grid grid-2">
-            <EntityList key={`a-${cid}`} path={`/companies/${cid}/areas`} title="Áreas" placeholder="Ej: Ventas" />
-            <EntityList key={`c-${cid}`} path={`/companies/${cid}/categories`} title="Categorías de gasto" placeholder="Ej: Transporte" />
-          </div>
-        )}
-      </NeedsCompany>
+      <NeedsCompany>{(cid) => <CatalogFor key={cid} cid={cid} />}</NeedsCompany>
     </div>
+  );
+}
+
+function CatalogFor({ cid }: { cid: string }) {
+  const [version, setVersion] = useState(0);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function seed() {
+    setMsg(null);
+    try {
+      const { added } = await api.post<{ added: number }>(`/companies/${cid}/seed-defaults`);
+      setMsg(added ? `Se agregaron ${added} áreas/categorías base.` : 'Ya estaban todas las listas base.');
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  }
+
+  return (
+    <>
+      <div className="row spread">
+        <p className="muted small" style={{ margin: 0 }}>Las empresas nuevas parten con listas base. Puedes renombrar, desactivar o agregar las que quieras.</p>
+        <button onClick={seed}>Cargar listas base</button>
+      </div>
+      {msg && <div className="alert ok">{msg}</div>}
+      <div className="grid grid-2">
+        <EntityList key={`a-${cid}-${version}`} path={`/companies/${cid}/areas`} title="Áreas" placeholder="Ej: Ventas" />
+        <EntityList key={`c-${cid}-${version}`} path={`/companies/${cid}/categories`} title="Categorías de gasto" placeholder="Ej: Transporte" />
+      </div>
+    </>
   );
 }
 

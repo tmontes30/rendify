@@ -36,6 +36,7 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
   const { flows, areaName } = useCatalog(cid);
   const users = useLoad<UserLite[]>(`/users?companyId=${cid}`);
   const [editing, setEditing] = useState<Flow | 'new' | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
   const nameOf = (f: Flow, uid: string) => f.approverNames?.[uid] ?? users.data?.find((u) => u.uid === uid)?.displayName ?? uid;
   const usersIn = (fid: string) => users.data?.filter((u) => u.flowId === fid).length ?? 0;
@@ -61,6 +62,7 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
         <div className="alert warn">Primero crea los usuarios de la empresa (los aprobadores también son usuarios).</div>
       )}
       {flows.error && <div className="alert error">{flows.error}</div>}
+      {flash && <div className="alert ok">{flash}</div>}
 
       <div className="stack">
         {flows.data?.map((f) => (
@@ -116,9 +118,15 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
           users={users.data.filter((u) => u.active)}
           areaName={areaName}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(assigned) => {
             setEditing(null);
+            setFlash(
+              assigned
+                ? `Flujo guardado. Se asignó a ${assigned} aprobador(es) que no tenían flujo; sus rendiciones partirán en el nivel siguiente al suyo.`
+                : 'Flujo guardado.',
+            );
             void flows.reload();
+            void users.reload();
           }}
         />
       )}
@@ -141,7 +149,7 @@ function FlowModal({
   users: UserLite[];
   areaName: (id: string) => string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (assigned: number) => void;
 }) {
   const [name, setName] = useState(flow?.name ?? '');
   const [levels, setLevels] = useState<LevelDraft[]>(
@@ -176,9 +184,10 @@ function FlowModal({
     }
     setBusy(true);
     try {
-      if (flow) await api.put(`/companies/${cid}/flows/${flow.id}`, { name, levels: out });
-      else await api.post(`/companies/${cid}/flows`, { name, levels: out });
-      onSaved();
+      const r = flow
+        ? await api.put<{ assigned: number }>(`/companies/${cid}/flows/${flow.id}`, { name, levels: out })
+        : await api.post<{ assigned: number }>(`/companies/${cid}/flows`, { name, levels: out });
+      onSaved(r.assigned ?? 0);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -194,7 +203,8 @@ function FlowModal({
           <input id="fn" required maxLength={100} placeholder="Ej: Ventas estándar" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <p className="hint">
-          La rendición pasa por los niveles en orden. En cada nivel basta con que <b>uno</b> de los aprobadores apruebe. Los niveles con
+          Las personas que agregues como aprobadores y no tengan flujo quedan asignadas a este; sus propias rendiciones parten en el nivel
+          siguiente al suyo (las del último nivel las apruebas tú). La rendición pasa por los niveles en orden. En cada nivel basta con que <b>uno</b> de los aprobadores apruebe. Los niveles con
           monto mínimo solo se activan si el total de la rendición lo alcanza (en {base}); si tiene gastos en otras monedas, se activan
           siempre.
         </p>
