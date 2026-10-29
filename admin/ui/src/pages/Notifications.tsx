@@ -1,0 +1,186 @@
+import { useState, type ReactNode } from 'react';
+import { REMINDER_HOURS } from '@rendiciones/shared';
+import { PageHeader } from '../components';
+import { useCompany, useLoad } from '../hooks';
+import { qs } from '../api';
+import { NotifyModal } from './Reports';
+
+interface NoticeItem {
+  companyId: string;
+  companyName: string;
+  id: string;
+  title: string;
+  ownerName: string;
+  total: string;
+  levelName: string;
+  to: string[];
+  waitingHours: number;
+  isReminder: boolean;
+  missingPayer?: boolean;
+}
+
+interface Notices {
+  payer: NoticeItem[];
+  approvers: NoticeItem[];
+  ownerTurn: NoticeItem[];
+}
+
+function duration(h: number) {
+  if (h < 1) return 'menos de 1 h';
+  if (h < 48) return `${h} h`;
+  return `${Math.floor(h / 24)} días`;
+}
+
+export function Notifications({ onChanged }: { onChanged: () => void }) {
+  const { companyId, companyName, goTo } = useCompany();
+  const { data, error, loading, reload } = useLoad<Notices>(`/notifications${qs({ companyId: companyId || undefined })}`);
+  const [open, setOpen] = useState<{ item: NoticeItem; kind: 'payer' | 'approver' } | null>(null);
+
+  const refresh = async () => {
+    await reload();
+    onChanged();
+  };
+
+  return (
+    <div className="stack">
+      <PageHeader
+        title="Notificaciones"
+        subtitle={`${companyId ? companyName(companyId) : 'Todas las empresas'} · Avisos por correo que debes enviar: prepara el mensaje, envíalo y márcalo como avisado.`}
+        actions={
+          <button onClick={() => void refresh()} disabled={loading}>
+            {loading ? 'Actualizando…' : 'Actualizar'}
+          </button>
+        }
+      />
+      {error && <div className="alert error">{error}</div>}
+      {!data ? (
+        <p className="muted">Cargando…</p>
+      ) : (
+        <>
+          <Section
+            icon="💳"
+            title="Aprobadas por completo: avisar a quien paga"
+            empty="No hay rendiciones aprobadas pendientes de aviso."
+            items={data.payer}
+            render={(it) => (
+              <>
+                <div className="notice-main">
+                  <div className="strong">{it.title}</div>
+                  <div className="muted small">
+                    {it.companyName} · {it.ownerName} · aprobada hace {duration(it.waitingHours)}
+                  </div>
+                </div>
+                <div className="notice-to small">
+                  {it.missingPayer ? (
+                    <span className="text-bad">El flujo no tiene “quién paga”</span>
+                  ) : (
+                    <>
+                      Para: <b>{it.to.join(', ')}</b>
+                    </>
+                  )}
+                </div>
+                <div className="report-amount">{it.total}</div>
+                {it.missingPayer ? (
+                  <button onClick={() => goTo('flujos')}>Definir quién paga</button>
+                ) : (
+                  <button className="primary" onClick={() => setOpen({ item: it, kind: 'payer' })}>
+                    ✉ Preparar aviso
+                  </button>
+                )}
+              </>
+            )}
+          />
+
+          <Section
+            icon="⏰"
+            title={`Más de ${REMINDER_HOURS} h esperando: avisar al aprobador`}
+            empty={`Ninguna rendición lleva más de ${REMINDER_HOURS} h esperando en su nivel.`}
+            items={data.approvers}
+            render={(it) => (
+              <>
+                <div className="notice-main">
+                  <div className="row tight">
+                    <span className="strong">{it.title}</span>
+                    {it.isReminder && <span className="badge resent">Recordatorio</span>}
+                  </div>
+                  <div className="muted small">
+                    {it.companyName} · {it.ownerName} · lleva {duration(it.waitingHours)} en “{it.levelName}”
+                  </div>
+                </div>
+                <div className="notice-to small">
+                  Para: <b>{it.to.join(' o ')}</b>
+                </div>
+                <div className="report-amount">{it.total}</div>
+                <button className="primary" onClick={() => setOpen({ item: it, kind: 'approver' })}>
+                  ✉ Preparar aviso
+                </button>
+              </>
+            )}
+          />
+
+          {data.ownerTurn.length > 0 && (
+            <Section
+              icon="👤"
+              title="Esperan tu aprobación"
+              empty=""
+              items={data.ownerTurn}
+              render={(it) => (
+                <>
+                  <div className="notice-main">
+                    <div className="strong">{it.title}</div>
+                    <div className="muted small">
+                      {it.companyName} · {it.ownerName} · lleva {duration(it.waitingHours)}
+                    </div>
+                  </div>
+                  <div className="notice-to muted small">La envió el último nivel de su flujo</div>
+                  <div className="report-amount">{it.total}</div>
+                  <button onClick={() => goTo('rendiciones')}>Ir a aprobar</button>
+                </>
+              )}
+            />
+          )}
+        </>
+      )}
+
+      {open && (
+        <NotifyModal
+          cid={open.item.companyId}
+          id={open.item.id}
+          toPayer={open.kind === 'payer'}
+          markKind={open.kind}
+          onClose={() => setOpen(null)}
+          onMarked={() => void refresh()}
+        />
+      )}
+    </div>
+  );
+}
+
+function Section({
+  icon, title, empty, items, render,
+}: {
+  icon: string;
+  title: string;
+  empty: string;
+  items: NoticeItem[];
+  render: (it: NoticeItem) => ReactNode;
+}) {
+  return (
+    <div className="card">
+      <h2 className="row tight">
+        <span aria-hidden="true">{icon}</span> {title} <span className="count-pill">{items.length}</span>
+      </h2>
+      {items.length === 0 ? (
+        <p className="muted small" style={{ margin: 0 }}>{empty}</p>
+      ) : (
+        <div className="report-list">
+          {items.map((it) => (
+            <div key={`${it.companyId}/${it.id}`} className="notice-row">
+              {render(it)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

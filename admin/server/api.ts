@@ -6,6 +6,7 @@ import {
   CURRENCY_CODES,
   DEFAULT_AREAS,
   DEFAULT_CATEGORIES,
+  REMINDER_HOURS,
   DOC_TYPE_LABELS,
   STATUS_LABELS,
   companySchema,
@@ -185,6 +186,7 @@ api.get(
         name: f.data().name as string,
         levels: (f.data().levels ?? []).length as number,
         users: active.filter((u) => u.data().flowId === f.id).length,
+        hasPayer: !!f.data().payerUid,
       })),
       areas: { total: areas.size, active: areas.docs.filter((a) => a.data().active !== false).length },
       categories: { total: categories.size, active: categories.docs.filter((c) => c.data().active !== false).length },
@@ -269,18 +271,21 @@ api.get(
 
 async function buildFlow(cid: string, raw: unknown) {
   const body = parse(flowSchema, raw);
-  const uids = [...new Set(body.levels.flatMap((l) => l.approvers))];
+  const approverUids = [...new Set(body.levels.flatMap((l) => l.approvers))];
+  // allApprovers = quienes pueden ver las rendiciones del flujo (aprobadores + quien paga).
+  const uids = [...new Set([...approverUids, ...(body.payerUid ? [body.payerUid] : [])])];
   const snaps = await Promise.all(uids.map((u) => db.collection('users').doc(u).get()));
   const names: Record<string, string> = {};
   for (const s of snaps) {
     const d = s.data();
-    if (!d || d.companyId !== cid) throw new HttpError(400, 'Todos los aprobadores deben ser usuarios de esta empresa.');
+    if (!d || d.companyId !== cid) throw new HttpError(400, 'Los aprobadores y quien paga deben ser usuarios de esta empresa.');
     names[s.id] = d.displayName;
   }
   return {
     name: body.name,
     // El primer nivel siempre se activa.
     levels: body.levels.map((l, i) => ({ name: l.name, minAmount: i === 0 ? 0 : l.minAmount, approvers: [...new Set(l.approvers)] })),
+    payerUid: body.payerUid,
     allApprovers: uids,
     approverNames: names,
     updatedAt: FieldValue.serverTimestamp(),
@@ -308,11 +313,13 @@ async function syncApprovers(cid: string) {
     company(cid).collection('flows').get(),
     db.collection('users').where('companyId', '==', cid).get(),
   ]);
-  const approvers = new Set(flows.docs.flatMap((f) => (f.data().allApprovers as string[]) ?? []));
+  const approvers = new Set(flows.docs.flatMap((f) => ((f.data().levels ?? []) as { approvers: string[] }[]).flatMap((l) => l.approvers)));
+  const payers = new Set(flows.docs.map((f) => f.data().payerUid as string | null).filter(Boolean));
   const batch = db.batch();
   for (const u of users.docs) {
     const is = approvers.has(u.id);
-    if (u.data().isApprover !== is) batch.update(u.ref, { isApprover: is });
+    const pays = payers.has(u.id);
+    if (u.data().isApprover !== is || !!u.data().isPayer !== pays) batch.update(u.ref, { isApprover: is, isPayer: pays });
   }
   await batch.commit();
 }
@@ -596,11 +603,32 @@ api.get(
     const r = snap.data() as Report;
     const link = `${config.webUrl}#/r/${id}`;
     const total = formatTotals(r.totals);
+    const flowData = r.flowId ? (await company(cid).collection('flows').doc(r.flowId).get()).data() : undefined;
     let toUids: string[];
     let subject: string;
     let lines: string[];
-    if (r.status === 'pending') {
-      const flow = r.flowId ? (await company(cid).collection('flows').doc(r.flowId).get()).data() : undefined;
+    if (req.query.to === 'payer') {
+      if (!flowData?.payerUid) throw new HttpError(400, 'El flujo de esta rendición no tiene definido quién paga.');
+      toUids = [flowData.payerUid as string];
+      subject = `[${comp.name}] Rendición aprobada, pendiente de pago: ${r.title}`;
+      lines = [
+        'Hola,',
+        '',
+        `La rendición de ${r.ownerName} fue aprobada por completo y está lista para pago.`,
+        '',
+        `• Rendición: ${r.title}`,
+        `• Período: ${r.periodFrom} al ${r.periodTo}`,
+        `• Total a pagar: ${total} (${r.itemCount} gastos)`,
+        ...((r.approvals ?? []).filter((a) => a.decision === 'approved').length
+          ? [`• Aprobada por: ${[...new Set((r.approvals ?? []).filter((a) => a.decision === 'approved').map((a) => a.name))].join(', ')}`]
+          : []),
+        '',
+        `Ver detalle: ${link}`,
+        '',
+        'Saludos.',
+      ];
+    } else if (r.status === 'pending') {
+      const flow = flowData;
       const toOwner = !r.currentApprovers.length;
       const levelName = toOwner ? 'aprobación final de Administración' : flow?.levels?.[r.currentLevel]?.name ?? `Nivel ${r.currentLevel + 1}`;
       toUids = r.currentApprovers;
@@ -865,5 +893,121 @@ api.get(
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="rendiciones.csv"');
     res.send('﻿' + out.join('\r\n'));
+  }),
+);
+
+// ---------- Notificaciones (avisos por correo que el owner envía a mano) ----------
+const HOUR = 3_600_000;
+const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : 0);
+
+interface NoticeItem {
+  companyId: string;
+  companyName: string;
+  id: string;
+  title: string;
+  ownerName: string;
+  total: string;
+  levelName: string;
+  to: string[];
+  waitingHours: number;
+  isReminder: boolean;
+  missingPayer?: boolean;
+}
+
+/**
+ * Calcula qué avisos están pendientes:
+ *  - payer: rendición aprobada por completo y aún no se avisa a quien paga.
+ *  - approvers: lleva más de REMINDER_HOURS en el nivel actual sin decisión
+ *    (desde que llegó al nivel o desde el último aviso de ese nivel).
+ *  - ownerTurn: rendiciones que esperan la aprobación del owner.
+ */
+async function computeNotices(onlyCid?: string) {
+  const companies = (await db.collection('companies').get()).docs.filter((c) => !onlyCid || c.id === onlyCid);
+  const now = Date.now();
+  const payer: NoticeItem[] = [];
+  const approvers: NoticeItem[] = [];
+  const ownerTurn: NoticeItem[] = [];
+  const userCache = new Map<string, string>();
+  const nameOf = async (uid: string) => {
+    if (!userCache.has(uid)) userCache.set(uid, ((await db.collection('users').doc(uid).get()).data()?.displayName as string) ?? uid);
+    return userCache.get(uid)!;
+  };
+
+  for (const c of companies) {
+    const [reports, flows] = await Promise.all([
+      company(c.id).collection('reports').where('status', 'in', ['pending', 'approved']).get(),
+      company(c.id).collection('flows').get(),
+    ]);
+    const flowMap = new Map(flows.docs.map((f) => [f.id, f.data()]));
+    for (const d of reports.docs) {
+      const r = d.data() as Report;
+      const flow = r.flowId ? flowMap.get(r.flowId) : undefined;
+      const base = { companyId: c.id, companyName: c.data().name as string, id: d.id, title: r.title, ownerName: r.ownerName, total: formatTotals(r.totals) };
+      const notice = r.lastNotice;
+
+      if (r.status === 'approved') {
+        const approvedAt = Math.max(ms(r.decidedAt), ms(r.ownerReview?.at));
+        const done = notice?.kind === 'payer' && ms(notice.at) >= approvedAt;
+        if (done) continue;
+        const payerUid = flow?.payerUid as string | undefined;
+        payer.push({
+          ...base,
+          levelName: 'Aprobada por completo',
+          to: payerUid ? [await nameOf(payerUid)] : [],
+          waitingHours: Math.floor((now - approvedAt) / HOUR),
+          isReminder: false,
+          missingPayer: !payerUid,
+        });
+        continue;
+      }
+
+      // pending
+      const since = Math.max(ms(r.submittedAt), ms(r.decidedAt));
+      if (!r.currentApprovers.length) {
+        ownerTurn.push({ ...base, levelName: 'Aprobación final (tú)', to: [], waitingHours: Math.floor((now - since) / HOUR), isReminder: false });
+        continue;
+      }
+      const notifiedThisLevel = notice?.kind === 'approver' && notice.level === r.currentLevel && ms(notice.at) > since;
+      const from = notifiedThisLevel ? ms(notice!.at) : since;
+      if (now - from < REMINDER_HOURS * HOUR) continue;
+      approvers.push({
+        ...base,
+        levelName: (flow?.levels?.[r.currentLevel]?.name as string) ?? `Nivel ${r.currentLevel + 1}`,
+        to: await Promise.all(r.currentApprovers.map(nameOf)),
+        waitingHours: Math.floor((now - since) / HOUR),
+        isReminder: notifiedThisLevel,
+      });
+    }
+  }
+  const byWait = (a: NoticeItem, b: NoticeItem) => b.waitingHours - a.waitingHours;
+  return { payer: payer.sort(byWait), approvers: approvers.sort(byWait), ownerTurn: ownerTurn.sort(byWait) };
+}
+
+api.get(
+  '/notifications',
+  h(async (req, res) => {
+    res.json(await computeNotices(qCompany(req)));
+  }),
+);
+
+api.get(
+  '/notifications/count',
+  h(async (req, res) => {
+    const n = await cached(`notices-${qCompany(req) ?? 'all'}`, 30_000, () => computeNotices(qCompany(req)));
+    res.json({ count: n.payer.length + n.approvers.length + n.ownerTurn.length });
+  }),
+);
+
+/** El owner marca que ya envió el aviso (para que salga de la lista). */
+api.post(
+  '/companies/:cid/reports/:id/notified',
+  h(async (req, res) => {
+    const kind = req.body?.kind === 'payer' ? 'payer' : 'approver';
+    const ref = reportRef(req.params.cid, req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');
+    await ref.update({ lastNotice: { kind, level: snap.data()!.currentLevel ?? 0, at: FieldValue.serverTimestamp() } });
+    invalidate();
+    res.json({ ok: true });
   }),
 );

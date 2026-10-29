@@ -101,7 +101,9 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
                 <div className="flow-arrow" aria-hidden="true">→</div>
                 <div className="flow-node end">
                   <div className="flow-node-title">Aprobada</div>
-                  <div className="small muted">Pasa a pago</div>
+                  <div className="small">
+                    {f.payerUid ? <>💳 Paga: {nameOf(f, f.payerUid)}</> : <span className="text-bad">Sin “quién paga”</span>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -163,6 +165,7 @@ function FlowModal({
       { key: newKey(), name: '', minText: '', approvers: [] },
     ],
   );
+  const [payerUid, setPayerUid] = useState<string>(flow?.payerUid ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -192,11 +195,13 @@ function FlowModal({
       }
       out.push({ name: l.name, minAmount, approvers: l.approvers });
     }
+    if (!payerUid && !confirm('No elegiste quién paga. No podrás avisarle cuando una rendición quede aprobada. ¿Guardar igual?')) return;
     setBusy(true);
     try {
+      const body = { name, levels: out, payerUid: payerUid || null };
       const r = flow
-        ? await api.put<{ assigned: number }>(`/companies/${cid}/flows/${flow.id}`, { name, levels: out })
-        : await api.post<{ assigned: number }>(`/companies/${cid}/flows`, { name, levels: out });
+        ? await api.put<{ assigned: number }>(`/companies/${cid}/flows/${flow.id}`, body)
+        : await api.post<{ assigned: number }>(`/companies/${cid}/flows`, body);
       onSaved(r.assigned ?? 0);
     } catch (err) {
       setError((err as Error).message);
@@ -222,6 +227,23 @@ function FlowModal({
           aprobadores sin flujo quedan asignados a este, y sus propias rendiciones parten en el nivel de arriba del suyo (las del nivel
           final las apruebas tú).
         </p>
+        <div className="card level-card payer-card">
+          <div className="row tight">
+            <strong>💳 Quién paga</strong>
+            <span className="muted small">Recibe el aviso cuando la rendición queda aprobada por completo.</span>
+          </div>
+          <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+            <select value={payerUid} onChange={(e) => setPayerUid(e.target.value)} aria-label="Quién paga">
+              <option value="">— Elegir persona —</option>
+              {users.map((u) => (
+                <option key={u.uid} value={u.uid}>
+                  {u.displayName} · {areaName(u.areaId)} · {u.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="level-link" aria-hidden="true">↑ cuando todos aprueban, pasa a pago</div>
         <div className="stack">
           {display.map(({ l, i }, pos) => (
             <div key={l.key}>

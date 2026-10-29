@@ -275,9 +275,33 @@ interface NotifyData {
 }
 
 /** Mensaje de correo listo para copiar y pegar (o abrir en el programa de correo). */
-export function NotifyModal({ cid, id, onClose }: { cid: string; id: string; onClose: () => void }) {
-  const { data, error } = useLoad<NotifyData>(`/companies/${cid}/reports/${id}/notify`);
+export function NotifyModal({
+  cid, id, onClose, toPayer, markKind, onMarked,
+}: {
+  cid: string;
+  id: string;
+  onClose: () => void;
+  /** Mensaje para quien paga (en vez del destinatario según el estado). */
+  toPayer?: boolean;
+  /** Si se indica, muestra "Marcar como avisado" (saca el aviso de Notificaciones). */
+  markKind?: 'payer' | 'approver';
+  onMarked?: () => void;
+}) {
+  const { data, error } = useLoad<NotifyData>(`/companies/${cid}/reports/${id}/notify${toPayer ? '?to=payer' : ''}`);
   const [copied, setCopied] = useState<string | null>(null);
+  const [marking, setMarking] = useState(false);
+
+  async function mark() {
+    setMarking(true);
+    try {
+      await api.post(`/companies/${cid}/reports/${id}/notified`, { kind: markKind });
+      onMarked?.();
+      onClose();
+    } catch (e) {
+      alert((e as Error).message);
+      setMarking(false);
+    }
+  }
 
   const copy = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -310,6 +334,11 @@ export function NotifyModal({ cid, id, onClose }: { cid: string; id: string; onC
             <button onClick={() => copy('Todo', `Para: ${data.to.join(', ')}\nAsunto: ${data.subject}\n\n${data.body}`)}>
               {copied === 'Todo' ? '✓ Copiado' : 'Copiar todo'}
             </button>
+            {markKind && (
+              <button className="good" disabled={marking} onClick={mark}>
+                ✓ Marcar como avisado
+              </button>
+            )}
           </div>
         </div>
       )}

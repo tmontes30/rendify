@@ -16,6 +16,7 @@ const u = {
   cfo: { uid: 'c1', companyId: A, name: 'Diego Finanzas', flowId: null },
   other: { uid: 'o1', companyId: B, name: 'Eva OtraEmpresa', flowId: null },
   disabled: { uid: 'd1', companyId: A, name: 'Fede Inactivo', flowId: 'f1', active: false },
+  payer: { uid: 'p1', companyId: A, name: 'Pía Tesorería', flowId: null },
 } satisfies Record<string, U>;
 
 const FLOW = {
@@ -24,8 +25,9 @@ const FLOW = {
     { name: 'Jefe', minAmount: 0, approvers: ['b1'] },
     { name: 'Finanzas', minAmount: 500000, approvers: ['c1'] },
   ],
-  allApprovers: ['b1', 'c1'],
-  approverNames: { b1: 'Carla Jefa', c1: 'Diego Finanzas' },
+  payerUid: 'p1',
+  allApprovers: ['b1', 'c1', 'p1'],
+  approverNames: { b1: 'Carla Jefa', c1: 'Diego Finanzas', p1: 'Pía Tesorería' },
 };
 
 const fs = (x: U) => env.authenticatedContext(x.uid, { companyId: x.companyId }).firestore();
@@ -42,7 +44,7 @@ function draft(x: U, extra: Record<string, unknown> = {}) {
 }
 
 function pendingFields() {
-  return { status: 'pending', flowId: 'f1', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1'], submittedAt: serverTimestamp(), totals: { CLP: 15000 }, itemCount: 1 };
+  return { status: 'pending', flowId: 'f1', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1', 'p1'], submittedAt: serverTimestamp(), totals: { CLP: 15000 }, itemCount: 1 };
 }
 
 async function seed(id: string, owner: U, data: Record<string, unknown>) {
@@ -161,7 +163,7 @@ describe('crear y enviar', () => {
 
 describe('aprobación por niveles', () => {
   beforeEach(async () => {
-    await seed('r1', u.worker, { status: 'pending', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1'] });
+    await seed('r1', u.worker, { status: 'pending', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1', 'p1'] });
   });
 
   it('aprobadores leen con sus consultas', async () => {
@@ -209,7 +211,7 @@ describe('aprobación por niveles', () => {
 
   it('no se puede borrar el historial de aprobaciones', async () => {
     await seed('r2', u.worker, {
-      status: 'pending', currentLevel: 1, currentApprovers: ['c1'], approverUids: ['b1', 'c1'], approvals: [entry(u.boss, 'approved')],
+      status: 'pending', currentLevel: 1, currentApprovers: ['c1'], approverUids: ['b1', 'c1', 'p1'], approvals: [entry(u.boss, 'approved')],
     });
     await assertFails(
       updateDoc(doc(reportsOf(u.cfo), 'r2'), {
@@ -237,11 +239,21 @@ describe('aprobación por niveles', () => {
     await assertFails(setDoc(doc(reportsOf(u.worker), 'w-b'), sub(u.worker, 1, ['c1'])));
   });
 
+  it('quien paga ve la rendición y sus gastos, pero no aprueba', async () => {
+    await assertSucceeds(getDoc(doc(reportsOf(u.payer), 'r1')));
+    await assertSucceeds(getDocs(collection(fs(u.payer), 'companies', A, 'reports', 'r1', 'items')));
+    await assertFails(
+      updateDoc(doc(reportsOf(u.payer), 'r1'), {
+        status: 'approved', currentApprovers: [], approvals: [entry(u.payer, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
+      }),
+    );
+  });
+
   it('un aprobador no aprueba su propia rendición', async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       await updateDoc(doc(ctx.firestore(), 'users', 'b1'), { flowId: 'f1' });
     });
-    await seed('own', u.boss, { status: 'pending', currentApprovers: ['b1'], approverUids: ['b1', 'c1'] });
+    await seed('own', u.boss, { status: 'pending', currentApprovers: ['b1'], approverUids: ['b1', 'c1', 'p1'] });
     await assertFails(
       updateDoc(doc(reportsOf(u.boss), 'own'), {
         status: 'approved', currentApprovers: [], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),

@@ -8,9 +8,11 @@ import { Companies } from './pages/Companies';
 import { Users } from './pages/Users';
 import { Flows } from './pages/Flows';
 import { Catalog } from './pages/Catalog';
+import { Notifications } from './pages/Notifications';
 
-const PAGES: Record<string, { label: string; icon: string; el: () => ReactNode }> = {
+const PAGES: Record<string, { label: string; icon: string; el: (ctx: { refreshCount: () => void }) => ReactNode }> = {
   panel: { label: 'Panel', icon: '◧', el: () => <Dashboard /> },
+  notificaciones: { label: 'Notificaciones', icon: '✉', el: ({ refreshCount }) => <Notifications onChanged={refreshCount} /> },
   rendiciones: { label: 'Rendiciones', icon: '☰', el: () => <Reports /> },
   empresas: { label: 'Empresas', icon: '▦', el: () => <Companies /> },
   usuarios: { label: 'Usuarios', icon: '◉', el: () => <Users /> },
@@ -45,6 +47,22 @@ export function App() {
       /* ignorar */
     }
   };
+
+  const [noticeCount, setNoticeCount] = useState(0);
+  const refreshCount = useCallback(() => {
+    api.get<{ count: number }>(`/notifications/count${companyId ? `?companyId=${companyId}` : ''}`).then(
+      (r) => setNoticeCount(r.count),
+      () => undefined,
+    );
+  }, [companyId]);
+
+  // Contador de notificaciones: al cambiar de sección/empresa y cada 2 minutos.
+  useEffect(() => {
+    if (!session) return;
+    refreshCount();
+    const t = setInterval(refreshCount, 120_000);
+    return () => clearInterval(t);
+  }, [session, page, refreshCount]);
 
   const reloadCompanies = useCallback(async () => {
     const list = await api.get<CompanyRow[]>('/companies');
@@ -123,13 +141,14 @@ export function App() {
               >
                 <span className="nav-icon" aria-hidden="true">{p.icon}</span>
                 <span>{p.label}</span>
+                {k === 'notificaciones' && noticeCount > 0 && <span className="nav-count">{noticeCount}</span>}
               </a>
             ))}
           </nav>
           {session.emulator && <span className="badge pending sidebar-foot">EMULADOR</span>}
         </aside>
         <main className="main">
-          <div className="container">{PAGES[page].el()}</div>
+          <div className="container">{PAGES[page].el({ refreshCount })}</div>
         </main>
       </div>
     </CompanyContext.Provider>

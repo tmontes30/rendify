@@ -108,7 +108,7 @@ function CompanyModal({ company, onClose, onSaved }: { company: CompanyRow | nul
 
 interface Summary {
   users: { total: number; active: number; approvers: number; withoutFlow: string[] };
-  flows: { id: string; name: string; levels: number; users: number }[];
+  flows: { id: string; name: string; levels: number; users: number; hasPayer: boolean }[];
   areas: { total: number; active: number };
   categories: { total: number; active: number };
   reports: { total: number; byStatus: Partial<Record<Status, { count: number; totals: Totals }>>; waitingOwner: number };
@@ -131,7 +131,7 @@ function CompanySummary({ cid }: { cid: string }) {
         <p className="muted">Cargando resumen…</p>
       ) : (
         <>
-          {(data.users.withoutFlow.length > 0 || data.reports.waitingOwner > 0 || data.flows.length === 0 || data.categories.active === 0) && (
+          {(data.users.withoutFlow.length > 0 || data.reports.waitingOwner > 0 || data.flows.length === 0 || data.categories.active === 0 || data.flows.some((f) => !f.hasPayer)) && (
             <div className="stack" style={{ marginTop: 12 }}>
               {data.reports.waitingOwner > 0 && (
                 <div className="alert warn">
@@ -143,6 +143,12 @@ function CompanySummary({ cid }: { cid: string }) {
                 <div className="alert warn">
                   No tiene flujos de aprobación: nadie puede enviar rendiciones.{' '}
                   <button className="link" onClick={() => goTo('flujos')}>Crear flujo</button>
+                </div>
+              )}
+              {data.flows.some((f) => !f.hasPayer) && (
+                <div className="alert warn">
+                  Flujo(s) sin “quién paga”: {data.flows.filter((f) => !f.hasPayer).map((f) => f.name).join(', ')}.{' '}
+                  <button className="link" onClick={() => goTo('flujos')}>Definir</button>
                 </div>
               )}
               {data.users.withoutFlow.length > 0 && (

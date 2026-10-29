@@ -152,6 +152,12 @@ export interface Flow {
   id: string;
   name: string;
   levels: FlowLevel[];
+  /** Quién paga las rendiciones aprobadas de este flujo (usuario de la empresa). */
+  payerUid?: string | null;
+  /**
+   * Todas las personas con acceso de lectura a las rendiciones del flujo:
+   * aprobadores de todos los niveles + quien paga. Se copia a report.approverUids.
+   */
   allApprovers: string[];
   approverNames: Record<string, string>;
 }
@@ -199,6 +205,8 @@ export interface Report {
   decidedAt?: unknown;
   ownerReview?: { at: unknown; comment: string; decision: string };
   paidAt?: unknown;
+  /** Último aviso por correo marcado por el owner (solo lo escribe el panel). */
+  lastNotice?: { kind: 'approver' | 'payer'; level: number; at: unknown };
 }
 
 export interface Item {
@@ -277,6 +285,9 @@ export function resubmissionInfo(r: {
   };
 }
 
+/** Horas que puede esperar una rendición en un nivel antes de avisar al aprobador. */
+export const REMINDER_HOURS = 24;
+
 // ---------- Validaciones para la app de administración ----------
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const id = z.string().min(1).max(64);
@@ -311,6 +322,7 @@ export const namedEntitySchema = z.object({
 
 export const flowSchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.name),
+  payerUid: id.nullable().default(null),
   levels: z
     .array(
       z.object({
