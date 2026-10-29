@@ -1,17 +1,27 @@
 import { useState, type FormEvent } from 'react';
 import { api } from '../api';
-import { useLoad } from '../hooks';
+import { NeedsCompany, PageHeader } from '../components';
+import { useCompany, useLoad } from '../hooks';
 
-interface Entity { id: string; name: string; active: boolean }
+interface Entity {
+  id: string;
+  name: string;
+  active: boolean;
+}
 
 export function Catalog() {
+  const { companyName, companyId } = useCompany();
   return (
     <div className="stack">
-      <h1>Áreas y categorías</h1>
-      <div className="grid grid-2">
-        <EntityList path="/areas" title="Áreas" placeholder="Ej: Ventas" />
-        <EntityList path="/categories" title="Categorías de gasto" placeholder="Ej: Transporte" />
-      </div>
+      <PageHeader title="Áreas y categorías" subtitle={companyId ? companyName(companyId) : undefined} />
+      <NeedsCompany>
+        {(cid) => (
+          <div className="grid grid-2">
+            <EntityList key={`a-${cid}`} path={`/companies/${cid}/areas`} title="Áreas" placeholder="Ej: Ventas" />
+            <EntityList key={`c-${cid}`} path={`/companies/${cid}/categories`} title="Categorías de gasto" placeholder="Ej: Transporte" />
+          </div>
+        )}
+      </NeedsCompany>
     </div>
   );
 }
@@ -48,7 +58,7 @@ function EntityList({ path, title, placeholder }: { path: string; title: string;
   return (
     <div className="card">
       <h2>{title}</h2>
-      <form className="row" onSubmit={add} style={{ flexWrap: 'nowrap', marginBottom: 12 }}>
+      <form className="row nowrap" onSubmit={add} style={{ marginBottom: 12 }}>
         <input required maxLength={100} placeholder={placeholder} value={name} onChange={(e) => setName(e.target.value)} />
         <button className="primary" type="submit">Agregar</button>
       </form>
@@ -57,14 +67,20 @@ function EntityList({ path, title, placeholder }: { path: string; title: string;
         <tbody>
           {data?.map((it) => (
             <tr key={it.id}>
-              <td>{it.name} {!it.active && <span className="badge rejected">Inactiva</span>}</td>
+              <td>
+                {it.name} {!it.active && <span className="badge rejected">Inactiva</span>}
+              </td>
               <td className="num">
                 <button className="link" onClick={() => rename(it)}>Renombrar</button>
                 <button className="link" onClick={() => toggle(it)}>{it.active ? 'Desactivar' : 'Activar'}</button>
               </td>
             </tr>
           ))}
-          {data?.length === 0 && <tr><td className="muted">Sin registros.</td></tr>}
+          {data?.length === 0 && (
+            <tr>
+              <td className="muted">Sin registros.</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

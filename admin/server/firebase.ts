@@ -12,6 +12,8 @@ const repoDir = resolve(adminDir, '..');
 export interface LocalConfig {
   serviceAccountPath?: string;
   port: number;
+  /** URL pública de la web (se usa en los mensajes de aviso por correo). */
+  webUrl: string;
 }
 
 export const args = new Set(process.argv.slice(2));
@@ -20,8 +22,10 @@ export const EMULATOR_PROJECT = 'demo-rendiciones';
 
 function loadConfig(): LocalConfig {
   const file = resolve(adminDir, 'config.local.json');
-  const cfg: LocalConfig = { port: 5050 };
+  const cfg: LocalConfig = { port: 5050, webUrl: 'https://cavedevz.com/Rendiciones-Empresas/' };
   if (existsSync(file)) Object.assign(cfg, JSON.parse(readFileSync(file, 'utf8')));
+  if (process.argv.includes('--emulator')) cfg.webUrl = 'http://127.0.0.1:5173/';
+  if (!cfg.webUrl.endsWith('/')) cfg.webUrl += '/';
   if (process.env.ADMIN_PORT) cfg.port = Number(process.env.ADMIN_PORT);
   return cfg;
 }

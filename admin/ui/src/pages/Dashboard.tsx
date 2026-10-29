@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react';
 import { CURRENCY_CODES, formatMoney, formatTotals, type Currency, type Status, type Totals } from '@rendiciones/shared';
 import { api, qs } from '../api';
-import { useLoad } from '../hooks';
+import { useCompany, useLoad } from '../hooks';
+import { PageHeader } from '../components';
 
 interface Row { key: string; totals: Totals }
 interface DashboardData {
   total: Totals;
   itemCount: number;
   statusSummary: Record<Status, { count: number; totals: Totals }>;
+  byCompany: Row[];
   byArea: Row[];
   byMonth: Row[];
   byCategory: Row[];
   byUser: Row[];
-  names: { areas: Record<string, string>; categories: Record<string, string>; users: Record<string, string> };
+  names: { companies: Record<string, string>; areas: Record<string, string>; categories: Record<string, string>; users: Record<string, string> };
   usersCount: { total: number; active: number };
 }
 
@@ -26,7 +28,8 @@ const monthLabel = (k: string) => `${MONTHS[Number(k.slice(5, 7)) - 1]} ${k.slic
 export function Dashboard() {
   const [from, setFrom] = useState(yearStart());
   const [to, setTo] = useState('');
-  const { data, error, loading, reload } = useLoad<DashboardData>(`/dashboard${qs({ from, to })}`);
+  const { companyId, companyName } = useCompany();
+  const { data, error, loading, reload } = useLoad<DashboardData>(`/dashboard${qs({ from, to, companyId: companyId || undefined })}`);
 
   // Monedas presentes, ordenadas por cantidad de movimientos; la principal se usa para las barras.
   const currencies = useMemo(
@@ -41,8 +44,8 @@ export function Dashboard() {
   const s = data?.statusSummary;
   return (
     <div className="stack">
-      <div className="row spread">
-        <h1>Panel</h1>
+      <PageHeader title="Panel" subtitle={companyId ? companyName(companyId) : 'Todas las empresas'} />
+      <div className="card toolbar">
         <div className="row">
           <div className="field" style={{ marginBottom: 0 }}>
             <label htmlFor="from">Desde</label>
@@ -65,7 +68,7 @@ export function Dashboard() {
           </button>
           <button
             style={{ alignSelf: 'flex-end' }}
-            onClick={() => api.download(`/export.csv${qs({ from, to })}`, `rendiciones_${from || 'todo'}_${to || 'hoy'}.csv`).catch((e) => alert(e.message))}
+            onClick={() => api.download(`/export.csv${qs({ from, to, companyId: companyId || undefined })}`, `rendiciones_${from || 'todo'}_${to || 'hoy'}.csv`).catch((e) => alert(e.message))}
           >
             Exportar CSV
           </button>
@@ -78,11 +81,7 @@ export function Dashboard() {
         <>
           <div className="grid grid-tiles">
             <Tile label="Gasto rendido en el período" value={formatTotals(data.total)} sub={`${data.itemCount} gastos (sin borradores ni rechazados)`} />
-            <Tile
-              label="Pendientes de tu aprobación"
-              value={String((s?.manager_approved.count ?? 0) + (s?.submitted.count ?? 0))}
-              sub={`${s?.manager_approved.count ?? 0} aprobadas por jefe · ${s?.submitted.count ?? 0} esperando jefe`}
-            />
+            <Tile label="En aprobación" value={String(s?.pending.count ?? 0)} sub={formatTotals(s?.pending.totals)} />
             <Tile label="Aprobado por pagar" value={formatTotals(s?.approved.totals)} sub={`${s?.approved.count ?? 0} rendiciones`} />
             <Tile label="Usuarios activos" value={`${data.usersCount.active}`} sub={`de ${data.usersCount.total} registrados`} />
           </div>
@@ -91,6 +90,7 @@ export function Dashboard() {
             <div className="card muted">Aún no hay gastos rendidos en este período.</div>
           ) : (
             <div className="grid grid-2">
+              {!companyId && <BreakdownCard title="Por empresa" rows={data.byCompany} names={data.names.companies} currency={currency} />}
               <BreakdownCard title="Por área" rows={data.byArea} names={data.names.areas} currency={currency} />
               <BreakdownCard title="Por mes" rows={data.byMonth} label={monthLabel} currency={currency} keepOrder />
               <BreakdownCard title="Por categoría" rows={data.byCategory} names={data.names.categories} currency={currency} />

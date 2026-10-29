@@ -4,42 +4,47 @@ import {
   STATUS_LABELS,
   formatMoney,
   formatTotals,
+  type Approval,
+  type Flow,
   type Item,
   type Status,
   type Totals,
 } from '@rendiciones/shared';
 import { api, qs } from '../api';
-import { fmtDateTime, useCatalog, useLoad } from '../hooks';
+import { Modal, PageHeader } from '../components';
+import { fmtDateTime, useCatalog, useCompany, useLoad } from '../hooks';
 
-interface ReviewOut { uid?: string; name?: string; at: string | null; comment: string }
 interface ReportOut {
   id: string;
+  companyId: string;
   ownerUid: string;
   ownerName: string;
   areaId: string;
+  flowId: string | null;
   title: string;
   periodFrom: string;
   periodTo: string;
   status: Status;
   totals: Totals;
   itemCount: number;
+  currentLevel: number;
+  currentApprovers: string[];
+  approvals: Approval[];
   updatedAt: string | null;
   submittedAt: string | null;
   paidAt: string | null;
-  managerReview: ReviewOut | null;
-  ownerReview: ReviewOut | null;
+  ownerReview: { at: string | null; comment: string; decision: string } | null;
 }
 interface Detail {
   report: ReportOut;
   items: Item[];
+  flow: Flow | null;
   computedTotals: Totals;
   totalsMismatch: boolean;
-  ownerRole: string | null;
 }
 
 const TABS: { key: Status | ''; label: string }[] = [
-  { key: 'manager_approved', label: 'Por aprobar' },
-  { key: 'submitted', label: 'Esperando jefe' },
+  { key: 'pending', label: 'En aprobación' },
   { key: 'approved', label: 'Por pagar' },
   { key: 'paid', label: 'Pagadas' },
   { key: 'rejected', label: 'Rechazadas' },
@@ -48,29 +53,19 @@ const TABS: { key: Status | ''; label: string }[] = [
 ];
 
 export function Reports() {
-  const [status, setStatus] = useState<Status | ''>('manager_approved');
-  const [areaId, setAreaId] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
-  const { areas, areaName } = useCatalog();
-  const list = useLoad<ReportOut[]>(`/reports${qs({ status: status || undefined, areaId: areaId || undefined })}`);
+  const { companyId, companyName } = useCompany();
+  const [status, setStatus] = useState<Status | ''>('pending');
+  const [open, setOpen] = useState<ReportOut | null>(null);
+  const list = useLoad<ReportOut[]>(`/reports${qs({ status: status || undefined, companyId: companyId || undefined })}`);
 
   return (
     <div className="stack">
-      <div className="row spread">
-        <h1>Rendiciones</h1>
-        <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
-          <select value={areaId} onChange={(e) => setAreaId(e.target.value)} aria-label="Filtrar por área">
-            <option value="">Todas las áreas</option>
-            {areas.data?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <nav className="nav">
+      <PageHeader title="Rendiciones" subtitle={companyId ? companyName(companyId) : 'Todas las empresas'} />
+      <nav className="tabs">
         {TABS.map((t) => (
-          <a key={t.key || 'all'} href="#" className={status === t.key ? 'active' : ''} onClick={(e) => { e.preventDefault(); setStatus(t.key); }}>
+          <button key={t.key || 'all'} className={status === t.key ? 'active' : ''} onClick={() => setStatus(t.key)}>
             {t.label}
-          </a>
+          </button>
         ))}
       </nav>
 
@@ -84,18 +79,26 @@ export function Reports() {
           <table>
             <thead>
               <tr>
-                <th>Título</th><th>Trabajador</th><th className="hide-sm">Área</th><th className="hide-sm">Período</th>
-                <th>Estado</th><th className="num">Total</th>
+                <th>Rendición</th>
+                {!companyId && <th>Empresa</th>}
+                <th className="hide-sm">Período</th>
+                <th>Estado</th>
+                <th className="num">Total</th>
               </tr>
             </thead>
             <tbody>
               {list.data.map((r) => (
-                <tr key={r.id} className="clickable" onClick={() => setOpenId(r.id)}>
-                  <td>{r.title}</td>
-                  <td>{r.ownerName}</td>
-                  <td className="hide-sm">{areaName(r.areaId)}</td>
+                <tr key={`${r.companyId}/${r.id}`} className="clickable" onClick={() => setOpen(r)}>
+                  <td>
+                    <div className="strong">{r.title}</div>
+                    <div className="muted small">{r.ownerName}</div>
+                  </td>
+                  {!companyId && <td>{companyName(r.companyId)}</td>}
                   <td className="hide-sm small">{r.periodFrom} → {r.periodTo}</td>
-                  <td><span className={`badge ${r.status}`}>{STATUS_LABELS[r.status]}</span></td>
+                  <td>
+                    <span className={`badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
+                    {r.status === 'pending' && <div className="muted small">Nivel {r.currentLevel + 1}</div>}
+                  </td>
                   <td className="num">{formatTotals(r.totals)}</td>
                 </tr>
               ))}
@@ -104,26 +107,26 @@ export function Reports() {
         )}
       </div>
 
-      {openId && (
-        <ReportModal id={openId} onClose={() => setOpenId(null)} onChanged={() => void list.reload()} />
-      )}
+      {open && <ReportModal cid={open.companyId} id={open.id} onClose={() => setOpen(null)} onChanged={() => void list.reload()} />}
     </div>
   );
 }
 
-function ReportModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
-  const { data, error, reload } = useLoad<Detail>(`/reports/${id}`);
-  const { areaName, categoryName } = useCatalog();
+function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string; onClose: () => void; onChanged: () => void }) {
+  const { data, error, reload } = useLoad<Detail>(`/companies/${cid}/reports/${id}`);
+  const { areaName, categoryName } = useCatalog(cid);
+  const { companyName } = useCompany();
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+  const [notify, setNotify] = useState(false);
 
   async function act(action: 'approve' | 'reject' | 'pay', confirmText: string) {
     if (!confirm(confirmText)) return;
     setBusy(true);
     setMsg(null);
     try {
-      await api.post(`/reports/${id}/${action}`, { comment });
+      await api.post(`/companies/${cid}/reports/${id}/${action}`, { comment });
       setMsg({ type: 'ok', text: 'Listo.' });
       setComment('');
       await reload();
@@ -136,96 +139,182 @@ function ReportModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
   }
 
   const r = data?.report;
+  const levelName = (i: number) => data?.flow?.levels[i]?.name ?? `Nivel ${i + 1}`;
+  const approverName = (uid: string) => data?.flow?.approverNames?.[uid] ?? uid;
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="card modal" style={{ maxWidth: 860 }} onClick={(e) => e.stopPropagation()}>
-        <div className="row spread">
-          <h2>{r?.title ?? 'Rendición'}</h2>
-          <button className="link" onClick={onClose}>Cerrar ✕</button>
-        </div>
-        {error && <div className="alert error">{error}</div>}
-        {!data || !r ? (
-          <p className="muted">Cargando…</p>
-        ) : (
-          <div className="stack">
-            <div className="row small">
-              <span className={`badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
-              <span><b>{r.ownerName}</b>{data.ownerRole === 'manager' ? ' (jefe de área)' : ''}</span>
-              <span>· {areaName(r.areaId)}</span>
-              <span>· {r.periodFrom} → {r.periodTo}</span>
-              <span className="muted">· enviada {fmtDateTime(r.submittedAt)}</span>
-            </div>
-
-            {data.totalsMismatch && (
-              <div className="alert warn">
-                Los totales guardados ({formatTotals(r.totals)}) no coinciden con la suma de los gastos
-                ({formatTotals(data.computedTotals)}). Al aprobar se usará la suma de los gastos.
-              </div>
-            )}
-
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th className="hide-sm">Documento</th><th className="num">Monto</th></tr>
-                </thead>
-                <tbody>
-                  {data.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="small">{it.date}</td>
-                      <td>{categoryName(it.categoryId)}</td>
-                      <td>{it.description}{it.vendor && <div className="muted small">{it.vendor}</div>}</td>
-                      <td className="hide-sm small">{DOC_TYPE_LABELS[it.docType]} {it.docNumber}</td>
-                      <td className="num">{formatMoney(it.amount, it.currency)}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td colSpan={4}><b>Total</b></td>
-                    <td className="num"><b>{formatTotals(data.computedTotals)}</b></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {r.managerReview && (
-              <p className="small">
-                <b>Jefe:</b> {r.managerReview.name} · {fmtDateTime(r.managerReview.at)}
-                {r.managerReview.comment && <> — “{r.managerReview.comment}”</>}
-              </p>
-            )}
-            {r.ownerReview && (
-              <p className="small">
-                <b>Owner:</b> {fmtDateTime(r.ownerReview.at)}
-                {r.ownerReview.comment && <> — “{r.ownerReview.comment}”</>}
-              </p>
-            )}
-            {r.paidAt && <p className="small"><b>Pagada:</b> {fmtDateTime(r.paidAt)}</p>}
-
-            {['submitted', 'manager_approved', 'approved'].includes(r.status) && (
-              <div className="card" style={{ background: 'var(--surface-2)' }}>
-                {r.status === 'submitted' && data.ownerRole !== 'manager' && (
-                  <p className="alert warn small">Aún no la revisa el jefe de área. Puedes aprobarla igualmente.</p>
-                )}
-                <div className="field">
-                  <label htmlFor="comment">Comentario (obligatorio para rechazar)</label>
-                  <textarea id="comment" value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
-                </div>
-                <div className="row">
-                  {r.status !== 'approved' && (
-                    <button className="primary" disabled={busy} onClick={() => act('approve', '¿Aprobar esta rendición?')}>Aprobar</button>
-                  )}
-                  {r.status === 'approved' && (
-                    <button className="primary" disabled={busy} onClick={() => act('pay', '¿Marcar como pagada?')}>Marcar pagada</button>
-                  )}
-                  <button className="danger" disabled={busy || !comment.trim()} onClick={() => act('reject', '¿Rechazar y devolver al trabajador?')}>
-                    Rechazar
-                  </button>
-                </div>
-              </div>
-            )}
-            {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
+    <Modal title={r?.title ?? 'Rendición'} onClose={onClose} wide>
+      {error && <div className="alert error">{error}</div>}
+      {!data || !r ? (
+        <p className="muted">Cargando…</p>
+      ) : (
+        <div className="stack">
+          <div className="row small">
+            <span className={`badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
+            <span><b>{r.ownerName}</b></span>
+            <span>· {companyName(cid)} · {areaName(r.areaId)}</span>
+            <span>· {r.periodFrom} → {r.periodTo}</span>
+            <span className="muted">· enviada {fmtDateTime(r.submittedAt)}</span>
           </div>
-        )}
+
+          {data.totalsMismatch && (
+            <div className="alert warn">
+              Los totales guardados ({formatTotals(r.totals)}) no coinciden con la suma de los gastos ({formatTotals(data.computedTotals)}). Al
+              aprobar o pagar se usará la suma de los gastos.
+            </div>
+          )}
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Categoría</th>
+                  <th>Descripción</th>
+                  <th className="hide-sm">Documento</th>
+                  <th className="num">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((it) => (
+                  <tr key={it.id}>
+                    <td className="small">{it.date}</td>
+                    <td>{categoryName(it.categoryId)}</td>
+                    <td>
+                      {it.description}
+                      {it.vendor && <div className="muted small">{it.vendor}</div>}
+                    </td>
+                    <td className="hide-sm small">{DOC_TYPE_LABELS[it.docType]} {it.docNumber}</td>
+                    <td className="num">{formatMoney(it.amount, it.currency)}</td>
+                  </tr>
+                ))}
+                <tr className="total-row">
+                  <td colSpan={4}>Total</td>
+                  <td className="num">{formatTotals(data.computedTotals)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <h3>Recorrido de aprobación {data.flow && <span className="muted small">· flujo “{data.flow.name}”</span>}</h3>
+            <ol className="timeline">
+              {r.approvals.map((a, i) => (
+                <li key={i} className={a.decision}>
+                  <b>{a.decision === 'approved' ? 'Aprobó' : 'Rechazó'}</b> {a.name} ({a.levelName}) · {new Date(a.atMs).toLocaleString('es-CL')}
+                  {a.comment && <div className="muted">“{a.comment}”</div>}
+                </li>
+              ))}
+              {r.status === 'pending' && (
+                <li className="current">
+                  Esperando a <b>{r.currentApprovers.map(approverName).join(', ') || '—'}</b> ({levelName(r.currentLevel)})
+                </li>
+              )}
+              {r.ownerReview && (
+                <li className={r.ownerReview.decision}>
+                  <b>Owner {r.ownerReview.decision === 'approved' ? 'aprobó' : 'rechazó'}</b> · {fmtDateTime(r.ownerReview.at)}
+                  {r.ownerReview.comment && <div className="muted">“{r.ownerReview.comment}”</div>}
+                </li>
+              )}
+              {r.paidAt && <li className="approved"><b>Pagada</b> · {fmtDateTime(r.paidAt)}</li>}
+              {!r.approvals.length && r.status === 'draft' && <li className="muted">Aún no se envía.</li>}
+            </ol>
+          </div>
+
+          {r.status !== 'draft' && (
+            <div className="row">
+              <button onClick={() => setNotify(true)}>✉ Avisar por correo</button>
+            </div>
+          )}
+
+          {['pending', 'approved'].includes(r.status) && (
+            <div className="card soft">
+              <div className="field">
+                <label htmlFor="comment">Comentario (obligatorio para rechazar)</label>
+                <textarea id="comment" value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
+              </div>
+              <div className="row">
+                {r.status === 'pending' && (
+                  <button className="primary" disabled={busy} onClick={() => act('approve', '¿Aprobar directamente, saltando los niveles pendientes?')}>
+                    Aprobar (owner)
+                  </button>
+                )}
+                {r.status === 'approved' && (
+                  <button className="primary" disabled={busy} onClick={() => act('pay', '¿Marcar como pagada?')}>Marcar pagada</button>
+                )}
+                <button className="danger" disabled={busy || !comment.trim()} onClick={() => act('reject', '¿Rechazar y devolver al trabajador?')}>
+                  Rechazar
+                </button>
+              </div>
+            </div>
+          )}
+          {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
+        </div>
+      )}
+      {notify && <NotifyModal cid={cid} id={id} onClose={() => setNotify(false)} />}
+    </Modal>
+  );
+}
+
+interface NotifyData {
+  to: string[];
+  names: string[];
+  subject: string;
+  body: string;
+}
+
+/** Mensaje de correo listo para copiar y pegar (o abrir en el programa de correo). */
+export function NotifyModal({ cid, id, onClose }: { cid: string; id: string; onClose: () => void }) {
+  const { data, error } = useLoad<NotifyData>(`/companies/${cid}/reports/${id}/notify`);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const copy = async (label: string, text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  const mailto = data
+    ? `mailto:${data.to.join(',')}?subject=${encodeURIComponent(data.subject)}&body=${encodeURIComponent(data.body)}`
+    : '#';
+
+  return (
+    <Modal title="Avisar por correo" onClose={onClose}>
+      {error && <div className="alert error">{error}</div>}
+      {!data ? (
+        <p className="muted">Preparando mensaje…</p>
+      ) : (
+        <div className="stack">
+          <CopyField label="Para" value={data.to.join(', ') || '(sin correo)'} hint={data.names.join(', ')} onCopy={() => copy('Para', data.to.join(', '))} copied={copied === 'Para'} />
+          <CopyField label="Asunto" value={data.subject} onCopy={() => copy('Asunto', data.subject)} copied={copied === 'Asunto'} />
+          <div className="field">
+            <div className="row spread">
+              <label>Mensaje</label>
+              <button className="link" onClick={() => copy('Mensaje', data.body)}>{copied === 'Mensaje' ? '✓ Copiado' : 'Copiar'}</button>
+            </div>
+            <pre className="code-box">{data.body}</pre>
+          </div>
+          <div className="row modal-actions">
+            <a className="btn primary" href={mailto}>Abrir en mi correo</a>
+            <button onClick={() => copy('Todo', `Para: ${data.to.join(', ')}\nAsunto: ${data.subject}\n\n${data.body}`)}>
+              {copied === 'Todo' ? '✓ Copiado' : 'Copiar todo'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function CopyField({ label, value, hint, onCopy, copied }: { label: string; value: string; hint?: string; onCopy: () => void; copied: boolean }) {
+  return (
+    <div className="field">
+      <div className="row spread">
+        <label>{label}</label>
+        <button className="link" onClick={onCopy}>{copied ? '✓ Copiado' : 'Copiar'}</button>
       </div>
+      <div className="code-box">{value}</div>
+      {hint && <div className="hint">{hint}</div>}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth } from '../auth';
 
 export function Login() {
@@ -38,9 +39,16 @@ export function Login() {
   }
 
   return (
-    <div className="center-page">
+    <div className="center-page login-bg">
       <form className="card login-card" onSubmit={submit}>
-        <h1>Rendición de gastos</h1>
+        <div className="login-brand">
+          <Logo size={44} />
+          <div>
+            <div className="brand-name">Rendiciones</div>
+            <div className="brand-sub">Rendición de gastos</div>
+          </div>
+        </div>
+        <h1>{mode === 'login' ? 'Ingresa a tu cuenta' : 'Recupera tu contraseña'}</h1>
         <p className="muted">{mode === 'login' ? 'Ingresa con el usuario que te entregó el administrador.' : 'Te enviaremos un enlace a tu correo.'}</p>
         <div className="field">
           <label htmlFor="email">Correo</label>

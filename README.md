@@ -1,23 +1,31 @@
 # Rendición de gastos
 
-Herramienta interna para que los trabajadores rindan gastos, los jefes de área los aprueben y el owner dé la aprobación final, marque pagos y vea reportes.
+Plataforma para que los trabajadores de **varias empresas** rindan gastos, pasen por **flujos de aprobación por niveles** y el owner gestione todo.
 
 | Parte | Dónde corre | Quién la usa |
 |---|---|---|
-| `web/` | GitHub Pages (pública, con login) | Trabajadores y jefes de área |
-| `admin/` | **Solo en el PC del owner** (`http://127.0.0.1:5050`) | Owner: usuarios, áreas, categorías, aprobación final, pagos, panel, CSV |
+| `web/` | GitHub Pages (`https://cavedevz.com/Rendiciones-Empresas/`) | Trabajadores y aprobadores de cada empresa |
+| `admin/` | **Solo en el PC del owner** (`npm run admin`) | Owner: empresas, usuarios, flujos, áreas, categorías, rendiciones, pagos, panel, CSV, avisos por correo |
 | `firebase/` | Reglas de seguridad de Firestore + tests | — |
-| `shared/` | Tipos, monedas, estados y estilos comunes | — |
+| `shared/` | Tipos, monedas, estados, logo y estilos comunes | — |
 
-**Flujo:** Borrador → Enviada al jefe → Aprobada por jefe → Aprobada (owner) → Pagada. Cualquiera de los revisores puede *Rechazar* con comentario, y la rendición vuelve a ser editable por el trabajador.
+## Cómo funciona
+
+- **Empresas:** cada empresa tiene sus propias áreas, categorías, flujos y usuarios. Los datos de una empresa no son visibles para otra.
+- **Flujos de aprobación:** niveles en cadena (ej. Jefe directo → Gerente → Finanzas). Cada nivel tiene uno o más aprobadores (basta que apruebe uno) y, opcionalmente, un monto mínimo en la moneda base de la empresa para activarse. Si la rendición tiene gastos en otras monedas, los niveles con monto se activan siempre.
+- **Usuarios:** a cada persona se le asigna empresa, área y flujo. Un aprobador es un usuario que figura en algún nivel de un flujo.
+- **Estados:** Borrador → En aprobación (nivel 1, 2, …) → Aprobada → Pagada. Cualquier aprobador (o el owner) puede *Rechazar* con comentario y la rendición vuelve al trabajador para corregirla.
+- **Para el trabajador:** “Nueva rendición” abre una sola pantalla con título y gastos, una casilla de confirmación y el botón “Enviar a aprobación”. También hay **carga masiva** con una plantilla Excel (.xlsx) que solo acepta su propio formato.
+- **Avisos por correo:** desde el panel del owner, en cada rendición, “✉ Avisar por correo” arma el mensaje (destinatarios, asunto y texto) para copiar y pegar o abrir en tu correo.
 
 ## Seguridad: cómo está protegida
 
-- **No hay registro público.** Solo el owner crea usuarios desde la app local. Si alguien crea una cuenta por su cuenta usando la API de Firebase, no tiene rol ni perfil y las reglas le niegan todo (además aparece en la lista de usuarios como "Sin perfil" para que la deshabilites).
-- **Reglas de Firestore estrictas** ([firebase/firestore.rules](firebase/firestore.rules)): cada trabajador solo ve y edita sus rendiciones, y solo mientras están en borrador o rechazadas; el jefe solo ve su área y no puede aprobar las propias; nadie desde la web puede dar la aprobación final, marcar pagos, ni tocar usuarios, áreas o categorías. Se validan tipos, largos, monedas y montos enteros.
-- **Desactivar a alguien corta el acceso al instante**: las reglas verifican en cada operación que el perfil esté activo y que el rol/área coincidan.
-- **La clave de administrador (cuenta de servicio) nunca sale de tu PC**: no está en el repo ni en la web. La app local escucha solo en `127.0.0.1`, exige un token aleatorio nuevo en cada inicio y rechaza peticiones de otros sitios.
-- **Montos verificados**: al aprobar, el owner recalcula los totales desde los gastos; si no coinciden con lo guardado, la app lo advierte.
+- **No hay registro público.** Solo el owner crea usuarios. Una cuenta creada por fuera no tiene empresa ni perfil, y las reglas le niegan todo.
+- **Reglas de Firestore estrictas** ([firebase/firestore.rules](firebase/firestore.rules)): cada usuario solo ve su empresa; un trabajador solo ve y edita sus rendiciones (y solo en borrador o rechazadas); al enviar, los aprobadores deben ser exactamente los del flujo asignado; solo los aprobadores del nivel actual pueden aprobar, y nadie aprueba su propia rendición; el historial de aprobaciones no se puede borrar ni alterar; nadie desde la web marca pagos ni toca usuarios, flujos o catálogos.
+- **Desactivar a alguien corta el acceso al instante.**
+- **La clave de administrador nunca sale de tu PC.** El panel escucha solo en `127.0.0.1` con un token nuevo en cada inicio.
+- **Montos:** los aprobadores y el owner ven los totales calculados desde los gastos; al aprobar o pagar, el owner recalcula los totales oficiales.
+- **Limitación conocida (plan gratuito, sin servidor):** el aviso por correo es manual, y la decisión de qué nivel sigue la calcula el navegador del aprobador. Para automatizar correos y mover esa lógica a un servidor se puede pasar a Firebase Functions (plan Blaze).
 
 ## Requisitos (una vez)
 
@@ -38,7 +46,7 @@ npm run admin:emu              # Terminal 2: app del owner contra el emulador (a
 npm run dev:emu -w web         # Terminal 3: web en http://127.0.0.1:5173
 ```
 
-Usuarios de prueba (contraseña `demo-12345`): `trabajador@demo.cl`, `jefe@demo.cl` (jefe de Ventas), `ops@demo.cl`.
+Usuarios de prueba (contraseña `demo-12345`): `trabajador@demo.cl` (rinde), `jefe@demo.cl` (nivel 1) y `finanzas@demo.cl` (nivel 2, sobre $500.000), en “Empresa Demo”.
 
 Tests de las reglas de seguridad:
 
@@ -71,7 +79,7 @@ copy admin\config.example.json admin\config.local.json   # y pon la ruta del JSO
 npm run admin
 ```
 
-Se abre el navegador con un enlace que contiene un token de sesión (cambia cada vez). Primero crea **áreas** y **categorías**, luego los **usuarios**. Al crear un usuario se genera una contraseña temporal que debes entregarle por un canal privado; también puedes generar un enlace para que la cree él mismo.
+Se abre el navegador con un enlace que contiene un token de sesión (cambia cada vez). Orden recomendado: **Empresas** → elige la empresa → **Áreas y categorías** → **Usuarios** (incluidos los aprobadores) → **Flujos de aprobación** → vuelve a **Usuarios** y asigna el flujo a cada uno. Al crear un usuario se genera una contraseña temporal que debes entregarle por un canal privado; también puedes generar un enlace para que la cree él mismo.
 
 ### 3. Web en GitHub Pages
 

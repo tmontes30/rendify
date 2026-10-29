@@ -1,4 +1,5 @@
 {
-  "serviceAccountPath": "C:/Users/TU_USUARIO/secretos/rendiciones-firebase-adminsdk.json",
-  "port": 5050
+  "serviceAccountPath": "C:/Users/TU_USUARIO/secretos/rendiciones-admin.json",
+  "port": 5050,
+  "webUrl": "https://cavedevz.com/Rendiciones-Empresas/"
 }

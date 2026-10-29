@@ -1,19 +1,20 @@
 import { useState, type FormEvent } from 'react';
-import { ROLES, ROLE_LABELS, type Role } from '@rendiciones/shared';
 import { api } from '../api';
-import { fmtDateTime, useCatalog, useLoad } from '../hooks';
+import { Modal, PageHeader } from '../components';
+import { fmtDateTime, useCatalog, useCompany, useLoad } from '../hooks';
 
 interface UserRow {
   uid: string;
   email: string;
   displayName: string;
-  role: Role | null;
-  areaId: string | null;
+  companyId: string | null;
+  areaId?: string;
+  flowId?: string | null;
+  isApprover?: boolean;
   active: boolean;
   disabled: boolean;
   lastSignIn: string | null;
   orphan?: boolean;
-  missingAuth?: boolean;
 }
 
 /** Contraseña temporal aleatoria (sin caracteres ambiguos). */
@@ -25,21 +26,21 @@ function generatePassword(len = 14) {
 }
 
 export function Users() {
-  const users = useLoad<UserRow[]>('/users');
-  const { areas, areaName } = useCatalog();
+  const { companyId, companyName, companies } = useCompany();
+  const users = useLoad<UserRow[]>(companyId ? `/users?companyId=${companyId}` : '/users');
+  const { areaName, flowName } = useCatalog(companyId || null);
   const [editing, setEditing] = useState<UserRow | 'new' | null>(null);
   const [filter, setFilter] = useState('');
 
   const rows = (users.data ?? []).filter((u) =>
-    `${u.displayName} ${u.email} ${areaName(u.areaId)}`.toLowerCase().includes(filter.toLowerCase()),
+    `${u.displayName} ${u.email} ${companyName(u.companyId)}`.toLowerCase().includes(filter.toLowerCase()),
   );
-  const activeAreas = areas.data?.filter((a) => a.active) ?? [];
 
   async function toggle(u: UserRow) {
-    const action = u.disabled || !u.active ? 'enable' : 'disable';
-    if (action === 'disable' && !confirm(`¿Deshabilitar a ${u.displayName || u.email}? Perderá el acceso de inmediato.`)) return;
+    const enabled = u.active && !u.disabled;
+    if (enabled && !confirm(`¿Deshabilitar a ${u.displayName || u.email}? Perderá el acceso de inmediato.`)) return;
     try {
-      await api.post(`/users/${u.uid}/${action}`);
+      await api.post(`/users/${u.uid}/${enabled ? 'disable' : 'enable'}`);
       await users.reload();
     } catch (e) {
       alert((e as Error).message);
@@ -48,42 +49,59 @@ export function Users() {
 
   return (
     <div className="stack">
-      <div className="row spread">
-        <h1>Usuarios</h1>
-        <div className="row">
-          <input placeholder="Buscar…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 220 }} />
-          <button className="primary" onClick={() => setEditing('new')} disabled={!activeAreas.length}>+ Nuevo usuario</button>
-        </div>
-      </div>
-      {!activeAreas.length && areas.data && (
-        <div className="alert warn">Primero crea al menos un área en “Áreas y categorías”.</div>
-      )}
+      <PageHeader
+        title="Usuarios"
+        subtitle={companyId ? companyName(companyId) : 'Todas las empresas'}
+        actions={
+          <>
+            <input className="search" placeholder="Buscar…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <button className="primary" onClick={() => setEditing('new')} disabled={!companies.length}>
+              + Nuevo usuario
+            </button>
+          </>
+        }
+      />
+      {!companies.length && <div className="alert warn">Primero crea una empresa en “Empresas”.</div>}
       {users.error && <div className="alert error">{users.error}</div>}
 
       <div className="card table-wrap">
         {!users.data ? (
           <p className="muted">Cargando…</p>
+        ) : rows.length === 0 ? (
+          <p className="muted">Sin usuarios.</p>
         ) : (
           <table>
             <thead>
-              <tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Área</th><th className="hide-sm">Último ingreso</th><th>Estado</th><th /></tr>
+              <tr>
+                <th>Nombre</th>
+                {!companyId && <th>Empresa</th>}
+                {companyId && <th>Área</th>}
+                {companyId && <th>Flujo</th>}
+                <th className="hide-sm">Último ingreso</th>
+                <th>Estado</th>
+                <th />
+              </tr>
             </thead>
             <tbody>
               {rows.map((u) => {
                 const enabled = u.active && !u.disabled;
                 return (
                   <tr key={u.uid}>
-                    <td>{u.displayName || <span className="muted">—</span>}</td>
-                    <td className="small">{u.email}</td>
-                    <td>{u.role ? ROLE_LABELS[u.role] : <span className="badge rejected">Sin perfil</span>}</td>
-                    <td>{u.areaId ? areaName(u.areaId) : '—'}</td>
+                    <td>
+                      <div className="strong">{u.displayName || '—'}</div>
+                      <div className="muted small">{u.email}</div>
+                      {u.isApprover && <span className="badge info">Aprobador</span>}
+                    </td>
+                    {!companyId && <td>{u.orphan ? <span className="badge rejected">Sin empresa</span> : companyName(u.companyId)}</td>}
+                    {companyId && <td>{areaName(u.areaId)}</td>}
+                    {companyId && <td>{u.flowId ? flowName(u.flowId) : <span className="badge pending">Sin flujo</span>}</td>}
                     <td className="hide-sm small">{u.lastSignIn ? fmtDateTime(new Date(u.lastSignIn).toISOString()) : 'Nunca'}</td>
-                    <td><span className={`badge ${enabled ? 'approved' : 'rejected'}`}>{enabled ? 'Activo' : 'Deshabilitado'}</span></td>
+                    <td>
+                      <span className={`badge ${enabled ? 'approved' : 'rejected'}`}>{enabled ? 'Activo' : 'Deshabilitado'}</span>
+                    </td>
                     <td className="num">
-                      <button className="link" onClick={() => setEditing(u)}>{u.orphan ? 'Asignar perfil' : 'Editar'}</button>
-                      {!u.missingAuth && (
-                        <button className="link" onClick={() => toggle(u)}>{enabled ? 'Deshabilitar' : 'Habilitar'}</button>
-                      )}
+                      {!u.orphan && <button className="link" onClick={() => setEditing(u)}>Editar</button>}
+                      <button className="link" onClick={() => toggle(u)}>{enabled ? 'Deshabilitar' : 'Habilitar'}</button>
                     </td>
                   </tr>
                 );
@@ -96,50 +114,49 @@ export function Users() {
       {editing && (
         <UserModal
           user={editing === 'new' ? null : editing}
-          areas={activeAreas}
+          defaultCompany={companyId || companies[0]?.id || ''}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); void users.reload(); }}
+          onSaved={() => {
+            setEditing(null);
+            void users.reload();
+          }}
         />
       )}
     </div>
   );
 }
 
-function UserModal({
-  user, areas, onClose, onSaved,
-}: {
-  user: UserRow | null;
-  areas: { id: string; name: string }[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow | null; defaultCompany: string; onClose: () => void; onSaved: () => void }) {
+  const { companies } = useCompany();
   const isNew = !user;
+  const [companyId, setCompanyId] = useState(user?.companyId ?? defaultCompany);
+  const { areas, flows } = useCatalog(companyId);
   const [email, setEmail] = useState(user?.email ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
-  const [role, setRole] = useState<Role>(user?.role ?? 'worker');
-  const [areaId, setAreaId] = useState(user?.areaId ?? areas[0]?.id ?? '');
+  const [areaId, setAreaId] = useState(user?.areaId ?? '');
+  const [flowId, setFlowId] = useState(user?.flowId ?? '');
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
   const [resetLink, setResetLink] = useState<string | null>(null);
 
+  const activeAreas = areas.data?.filter((a) => a.active) ?? [];
+  const effectiveArea = areaId || activeAreas[0]?.id || '';
+
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (!effectiveArea) return setError('La empresa no tiene áreas. Créalas en “Áreas y categorías”.');
     setBusy(true);
     setError(null);
     try {
       if (isNew) {
-        await api.post('/users', { email, displayName, role, areaId, password });
+        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, password });
         setCreated({ email, password });
         return;
       }
-      if (user?.orphan) {
-        await api.post(`/users/${user!.uid}/profile`, { displayName, role, areaId });
-      } else {
-        await api.patch(`/users/${user!.uid}`, { displayName, role, areaId });
-        if (password) await api.post(`/users/${user!.uid}/password`, { password });
-      }
+      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null });
+      if (password) await api.post(`/users/${user!.uid}/password`, { password });
       onSaved();
     } catch (err) {
       setError((err as Error).message);
@@ -160,27 +177,28 @@ function UserModal({
   if (created) {
     const text = `Usuario: ${created.email}\nContraseña temporal: ${created.password}`;
     return (
-      <div className="modal-backdrop">
-        <div className="card modal">
-          <h2>Usuario creado</h2>
-          <p>Entrega estos datos al trabajador por un canal privado. La contraseña no se volverá a mostrar.</p>
-          <pre className="card" style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>
-          <p className="small muted">Recomiéndale cambiarla con “¿Olvidaste tu contraseña?” en la página de ingreso.</p>
-          <div className="row">
-            <button onClick={() => navigator.clipboard.writeText(text)}>Copiar</button>
-            <button className="primary" onClick={onSaved}>Listo</button>
-          </div>
+      <Modal title="Usuario creado" onClose={onSaved}>
+        <p>Entrega estos datos por un canal privado. La contraseña no se volverá a mostrar.</p>
+        <pre className="code-box">{text}</pre>
+        <div className="row modal-actions">
+          <button onClick={() => navigator.clipboard.writeText(text)}>Copiar</button>
+          <button className="primary" onClick={onSaved}>Listo</button>
         </div>
-      </div>
+      </Modal>
     );
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="card modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-        <h2>{isNew ? 'Nuevo usuario' : user?.orphan ? 'Asignar perfil' : 'Editar usuario'}</h2>
+    <Modal title={isNew ? 'Nuevo usuario' : 'Editar usuario'} onClose={onClose}>
+      <form onSubmit={save}>
         <div className="field">
-          <label htmlFor="email">Correo</label>
+          <label htmlFor="uc">Empresa</label>
+          <select id="uc" value={companyId} disabled={!isNew} onChange={(e) => { setCompanyId(e.target.value); setAreaId(''); setFlowId(''); }}>
+            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="email">Correo (aquí le avisarás de aprobaciones)</label>
           <input id="email" type="email" required value={email} disabled={!isNew} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div className="field">
@@ -189,30 +207,33 @@ function UserModal({
         </div>
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="role">Rol</label>
-            <select id="role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-              {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            <label htmlFor="area">Área</label>
+            <select id="area" required value={effectiveArea} onChange={(e) => setAreaId(e.target.value)}>
+              {activeAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="area">Área</label>
-            <select id="area" required value={areaId} onChange={(e) => setAreaId(e.target.value)}>
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            <label htmlFor="flow">Flujo de aprobación</label>
+            <select id="flow" value={flowId} onChange={(e) => setFlowId(e.target.value)}>
+              <option value="">Sin flujo (no puede enviar)</option>
+              {flows.data?.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>
         </div>
-        {!user?.orphan && (
-          <div className="field">
-            <label htmlFor="pw">{isNew ? 'Contraseña temporal' : 'Nueva contraseña (opcional)'}</label>
-            <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input id="pw" minLength={10} required={isNew} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
-              <button type="button" onClick={() => setPassword(generatePassword())}>Generar</button>
-            </div>
+        <p className="hint">
+          Para que alguien <b>apruebe</b>, agrégalo como aprobador dentro de un flujo (sección “Flujos de aprobación”). Puedes crear primero
+          a los aprobadores y después los flujos.
+        </p>
+        <div className="field">
+          <label htmlFor="pw">{isNew ? 'Contraseña temporal' : 'Nueva contraseña (opcional)'}</label>
+          <div className="row nowrap">
+            <input id="pw" minLength={10} required={isNew} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <button type="button" onClick={() => setPassword(generatePassword())}>Generar</button>
           </div>
-        )}
-        {!isNew && !user?.orphan && (
+        </div>
+        {!isNew && (
           <div className="field">
-            <button type="button" className="link" onClick={makeResetLink}>Generar enlace para que el usuario cree su contraseña</button>
+            <button type="button" className="link" onClick={makeResetLink}>Generar enlace para que cree su contraseña</button>
             {resetLink && (
               <div className="alert ok small" style={{ wordBreak: 'break-all' }}>
                 {resetLink}{' '}
@@ -222,11 +243,11 @@ function UserModal({
           </div>
         )}
         {error && <div className="alert error">{error}</div>}
-        <div className="row" style={{ marginTop: 12 }}>
+        <div className="row modal-actions">
           <button type="submit" className="primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button>
           <button type="button" onClick={onClose}>Cancelar</button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

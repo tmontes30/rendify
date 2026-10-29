@@ -1,13 +1,5 @@
 import { z } from 'zod';
 
-// ---------- Roles ----------
-export const ROLES = ['worker', 'manager'] as const;
-export type Role = (typeof ROLES)[number];
-export const ROLE_LABELS: Record<Role, string> = {
-  worker: 'Trabajador',
-  manager: 'Jefe de área',
-};
-
 // ---------- Monedas ----------
 // Si agregas una moneda aquí, agrégala también en firebase/firestore.rules (función currencies()).
 export const CURRENCIES = {
@@ -26,10 +18,9 @@ export const CURRENCY_CODES = Object.keys(CURRENCIES) as Currency[];
 /** Convierte texto ingresado por el usuario ("12.345,67" o "12345.67") a unidad mínima (entero). */
 export function toMinor(input: string, currency: Currency): number | null {
   const decimals = CURRENCIES[currency].decimals;
-  let s = input.trim().replace(/\s/g, '');
+  const s = input.trim().replace(/\s/g, '').replace(/^\$/, '');
   if (!s) return null;
-  // Acepta coma o punto como separador decimal: el último separador es el decimal
-  // solo si le siguen exactamente 1..decimals dígitos.
+  // El último separador es decimal solo si le siguen 1..decimals dígitos.
   const lastSep = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
   let intPart = s;
   let fracPart = '';
@@ -45,6 +36,12 @@ export function toMinor(input: string, currency: Currency): number | null {
   const value = Number(intPart) * 10 ** decimals + Number(fracPart.padEnd(decimals, '0') || 0);
   if (!Number.isSafeInteger(value) || value <= 0) return null;
   return value;
+}
+
+/** Unidad mínima → texto editable ("12345,5"). */
+export function fromMinor(minor: number, currency: Currency): string {
+  const d = CURRENCIES[currency].decimals;
+  return (minor / 10 ** d).toString().replace('.', ',');
 }
 
 export function formatMoney(minor: number, currency: Currency | string): string {
@@ -77,13 +74,12 @@ export function formatTotals(totals: Totals | undefined): string {
   return entries.map(([c, v]) => formatMoney(v as number, c)).join(' · ');
 }
 
-// ---------- Estados de una rendición ----------
-export const STATUSES = ['draft', 'submitted', 'manager_approved', 'approved', 'paid', 'rejected'] as const;
+// ---------- Estados ----------
+export const STATUSES = ['draft', 'pending', 'approved', 'paid', 'rejected'] as const;
 export type Status = (typeof STATUSES)[number];
 export const STATUS_LABELS: Record<Status, string> = {
   draft: 'Borrador',
-  submitted: 'Enviada al jefe',
-  manager_approved: 'Aprobada por jefe',
+  pending: 'En aprobación',
   approved: 'Aprobada',
   paid: 'Pagada',
   rejected: 'Rechazada',
@@ -109,9 +105,18 @@ export const LIMITS = {
   docNumber: 40,
   comment: 500,
   maxItems: 200,
+  maxLevels: 8,
+  maxApproversPerLevel: 20,
 } as const;
 
 // ---------- Modelos ----------
+export interface Company {
+  id: string;
+  name: string;
+  active: boolean;
+  baseCurrency: Currency;
+}
+
 export interface Area {
   id: string;
   name: string;
@@ -124,20 +129,40 @@ export interface Category {
   active: boolean;
 }
 
+export interface FlowLevel {
+  name: string;
+  /** Monto mínimo (unidad mínima, moneda base de la empresa) para que el nivel se active. 0 = siempre. */
+  minAmount: number;
+  approvers: string[]; // uids
+}
+
+export interface Flow {
+  id: string;
+  name: string;
+  levels: FlowLevel[];
+  allApprovers: string[];
+  approverNames: Record<string, string>;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: Role;
+  companyId: string;
   areaId: string;
+  flowId: string | null;
+  isApprover: boolean;
   active: boolean;
 }
 
-export interface Review {
-  uid?: string;
-  name?: string;
-  at: unknown; // Timestamp
+export interface Approval {
+  level: number;
+  levelName: string;
+  uid: string;
+  name: string;
+  decision: 'approved' | 'rejected';
   comment: string;
+  atMs: number;
 }
 
 export interface Report {
@@ -145,17 +170,22 @@ export interface Report {
   ownerUid: string;
   ownerName: string;
   areaId: string;
+  flowId: string | null;
   title: string;
   periodFrom: string; // YYYY-MM-DD
   periodTo: string;
   status: Status;
   totals: Totals;
   itemCount: number;
+  currentLevel: number;
+  currentApprovers: string[];
+  approverUids: string[];
+  approvals: Approval[];
   createdAt?: unknown;
   updatedAt?: unknown;
   submittedAt?: unknown;
-  managerReview?: Review;
-  ownerReview?: Review;
+  decidedAt?: unknown;
+  ownerReview?: { at: unknown; comment: string; decision: string };
   paidAt?: unknown;
 }
 
@@ -171,21 +201,50 @@ export interface Item {
   currency: Currency;
 }
 
+/**
+ * Nivel siguiente que debe aprobar, o null si la rendición queda aprobada.
+ * Un nivel con monto mínimo se activa si el total en moneda base lo alcanza,
+ * o si la rendición tiene gastos en otras monedas (criterio conservador).
+ */
+export function nextRequiredLevel(
+  levels: FlowLevel[],
+  afterLevel: number,
+  totals: Totals,
+  baseCurrency: Currency,
+): number | null {
+  const hasForeign = Object.entries(totals).some(([c, v]) => c !== baseCurrency && (v ?? 0) > 0);
+  const base = totals[baseCurrency] ?? 0;
+  for (let i = afterLevel + 1; i < levels.length; i++) {
+    const l = levels[i];
+    if (!l.approvers.length) continue;
+    if (l.minAmount <= 0 || hasForeign || base >= l.minAmount) return i;
+  }
+  return null;
+}
+
 // ---------- Validaciones para la app de administración ----------
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const id = z.string().min(1).max(64);
+
+export const companySchema = z.object({
+  name: z.string().trim().min(1).max(LIMITS.name),
+  baseCurrency: z.enum(CURRENCY_CODES as [Currency, ...Currency[]]).default('CLP'),
+  active: z.boolean().optional(),
+});
 
 export const createUserSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
   displayName: z.string().trim().min(1).max(LIMITS.name),
-  role: z.enum(ROLES),
-  areaId: z.string().min(1).max(64),
+  companyId: id,
+  areaId: id,
+  flowId: id.nullable().default(null),
   password: z.string().min(10).max(100),
 });
 
 export const updateUserSchema = z.object({
   displayName: z.string().trim().min(1).max(LIMITS.name).optional(),
-  role: z.enum(ROLES).optional(),
-  areaId: z.string().min(1).max(64).optional(),
+  areaId: id.optional(),
+  flowId: id.nullable().optional(),
 });
 
 export const setPasswordSchema = z.object({ password: z.string().min(10).max(100) });
@@ -193,6 +252,20 @@ export const setPasswordSchema = z.object({ password: z.string().min(10).max(100
 export const namedEntitySchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.name),
   active: z.boolean().optional(),
+});
+
+export const flowSchema = z.object({
+  name: z.string().trim().min(1).max(LIMITS.name),
+  levels: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(LIMITS.name),
+        minAmount: z.number().int().min(0).max(1e13),
+        approvers: z.array(id).min(1).max(LIMITS.maxApproversPerLevel),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.maxLevels),
 });
 
 export const decisionSchema = z.object({

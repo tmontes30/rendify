@@ -1,89 +1,62 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  assertFails,
-  assertSucceeds,
-  initializeTestEnvironment,
-  type RulesTestEnvironment,
-} from '@firebase/rules-unit-testing';
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
-} from 'firebase/firestore';
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
 let env: RulesTestEnvironment;
 
-const AREA_A = 'ventas';
-const AREA_B = 'operaciones';
+const A = 'empresa-a';
+const B = 'empresa-b';
+type U = { uid: string; companyId: string; name: string; flowId: string | null; active?: boolean };
+const u = {
+  worker: { uid: 'w1', companyId: A, name: 'Ana Trabajadora', flowId: 'f1' },
+  worker2: { uid: 'w2', companyId: A, name: 'Beto Trabajador', flowId: 'f1' },
+  boss: { uid: 'b1', companyId: A, name: 'Carla Jefa', flowId: null },
+  cfo: { uid: 'c1', companyId: A, name: 'Diego Finanzas', flowId: null },
+  other: { uid: 'o1', companyId: B, name: 'Eva OtraEmpresa', flowId: null },
+  disabled: { uid: 'd1', companyId: A, name: 'Fede Inactivo', flowId: 'f1', active: false },
+} satisfies Record<string, U>;
 
-const users = {
-  worker: { uid: 'worker1', role: 'worker', areaId: AREA_A, name: 'Ana Trabajadora' },
-  worker2: { uid: 'worker2', role: 'worker', areaId: AREA_A, name: 'Beto Trabajador' },
-  manager: { uid: 'manager1', role: 'manager', areaId: AREA_A, name: 'Carla Jefa' },
-  managerB: { uid: 'manager2', role: 'manager', areaId: AREA_B, name: 'Diego Jefe' },
-  disabled: { uid: 'disabled1', role: 'worker', areaId: AREA_A, name: 'Eva Deshabilitada' },
+const FLOW = {
+  name: 'Estándar',
+  levels: [
+    { name: 'Jefe', minAmount: 0, approvers: ['b1'] },
+    { name: 'Finanzas', minAmount: 500000, approvers: ['c1'] },
+  ],
+  allApprovers: ['b1', 'c1'],
+  approverNames: { b1: 'Carla Jefa', c1: 'Diego Finanzas' },
 };
 
-function db(u: (typeof users)[keyof typeof users]) {
-  return env.authenticatedContext(u.uid, { role: u.role, areaId: u.areaId }).firestore();
-}
+const fs = (x: U) => env.authenticatedContext(x.uid, { companyId: x.companyId }).firestore();
+const reportsOf = (x: U) => collection(fs(x), 'companies', A, 'reports');
 
-function newReport(u: (typeof users)[keyof typeof users], extra: Record<string, unknown> = {}) {
+const item = { date: '2026-10-10', categoryId: 'transporte', description: 'Taxi', vendor: '', docType: 'boleta', docNumber: '1', amount: 15000, currency: 'CLP' };
+
+function draft(x: U, extra: Record<string, unknown> = {}) {
   return {
-    ownerUid: u.uid,
-    ownerName: u.name,
-    areaId: u.areaId,
-    title: 'Viaje a Santiago',
-    periodFrom: '2026-10-01',
-    periodTo: '2026-10-31',
-    status: 'draft',
-    totals: {},
-    itemCount: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    ...extra,
+    ownerUid: x.uid, ownerName: x.name, areaId: 'ventas', flowId: x.flowId, title: 'Gastos', periodFrom: '2026-10-01', periodTo: '2026-10-31',
+    status: 'draft', totals: {}, itemCount: 0, currentLevel: 0, currentApprovers: [], approverUids: [], approvals: [],
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
   };
 }
 
-const validItem = {
-  date: '2026-10-10',
-  categoryId: 'transporte',
-  description: 'Taxi aeropuerto',
-  vendor: 'Taxi SpA',
-  docType: 'boleta',
-  docNumber: '12345',
-  amount: 15000,
-  currency: 'CLP',
-};
+function pendingFields() {
+  return { status: 'pending', flowId: 'f1', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1'], submittedAt: serverTimestamp(), totals: { CLP: 15000 }, itemCount: 1 };
+}
 
-/** Crea un report directamente (saltando reglas) con el estado indicado. */
-async function seedReport(id: string, owner: (typeof users)[keyof typeof users], status: string, itemCount = 1) {
+async function seed(id: string, owner: U, data: Record<string, unknown>) {
   await env.withSecurityRulesDisabled(async (ctx) => {
-    const fs = ctx.firestore();
-    await setDoc(doc(fs, 'reports', id), {
-      ownerUid: owner.uid,
-      ownerName: owner.name,
-      areaId: owner.areaId,
-      title: 'Seed',
-      periodFrom: '2026-10-01',
-      periodTo: '2026-10-31',
-      status,
-      totals: { CLP: 15000 },
-      itemCount,
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'companies', A, 'reports', id), {
+      ownerUid: owner.uid, ownerName: owner.name, areaId: 'ventas', flowId: 'f1', title: 'Seed', periodFrom: '2026-10-01', periodTo: '2026-10-31',
+      status: 'draft', totals: { CLP: 15000 }, itemCount: 1, currentLevel: 0, currentApprovers: [], approverUids: [], approvals: [], ...data,
     });
-    await setDoc(doc(fs, 'reports', id, 'items', 'i1'), validItem);
+    await setDoc(doc(db, 'companies', A, 'reports', id, 'items', 'i1'), item);
   });
 }
+
+const entry = (x: U, decision: string, level = 0, comment = '') => ({ level, levelName: FLOW.levels[level].name, uid: x.uid, name: x.name, decision, comment, atMs: Date.now() });
 
 beforeAll(async () => {
   env = await initializeTestEnvironment({
@@ -91,244 +64,159 @@ beforeAll(async () => {
     firestore: { rules: readFileSync(fileURLToPath(new URL('../firestore.rules', import.meta.url)), 'utf8') },
   });
 });
-
-afterAll(async () => {
-  await env.cleanup();
-});
+afterAll(async () => env.cleanup());
 
 beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
-    const fs = ctx.firestore();
-    await setDoc(doc(fs, 'areas', AREA_A), { name: 'Ventas', active: true });
-    await setDoc(doc(fs, 'areas', AREA_B), { name: 'Operaciones', active: true });
-    await setDoc(doc(fs, 'categories', 'transporte'), { name: 'Transporte', active: true });
-    for (const u of Object.values(users)) {
-      await setDoc(doc(fs, 'users', u.uid), {
-        email: `${u.uid}@empresa.cl`,
-        displayName: u.name,
-        role: u.role,
-        areaId: u.areaId,
-        active: u.uid !== users.disabled.uid,
-      });
+    const db = ctx.firestore();
+    for (const c of [A, B]) {
+      await setDoc(doc(db, 'companies', c), { name: c, baseCurrency: 'CLP', active: true });
+      await setDoc(doc(db, 'companies', c, 'categories', 'transporte'), { name: 'Transporte', active: true });
+    }
+    await setDoc(doc(db, 'companies', A, 'flows', 'f1'), FLOW);
+    for (const x of Object.values(u) as U[]) {
+      await setDoc(doc(db, 'users', x.uid), { email: `${x.uid}@x.cl`, displayName: x.name, companyId: x.companyId, areaId: 'ventas', flowId: x.flowId, isApprover: false, active: x.active ?? true });
     }
   });
 });
 
-describe('acceso básico', () => {
-  it('usuario no autenticado no lee nada', async () => {
-    const fs = env.unauthenticatedContext().firestore();
-    await assertFails(getDoc(doc(fs, 'areas', AREA_A)));
-    await assertFails(getDoc(doc(fs, 'users', users.worker.uid)));
+describe('aislamiento', () => {
+  it('sin sesión o sin claims no se lee nada', async () => {
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'companies', A)));
+    await assertFails(getDoc(doc(env.authenticatedContext('intruso').firestore(), 'companies', A)));
   });
-
-  it('usuario autorregistrado sin claims no lee nada', async () => {
-    const fs = env.authenticatedContext('intruso').firestore();
-    await assertFails(getDoc(doc(fs, 'areas', AREA_A)));
-    await assertFails(getDocs(collection(fs, 'categories')));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport({ ...users.worker, uid: 'intruso' })));
+  it('un usuario no ve otra empresa, aunque falsifique el claim', async () => {
+    await assertSucceeds(getDoc(doc(fs(u.worker), 'companies', A)));
+    await assertFails(getDoc(doc(fs(u.other), 'companies', A)));
+    const fake = env.authenticatedContext(u.other.uid, { companyId: A }).firestore();
+    await assertFails(getDoc(doc(fake, 'companies', A, 'flows', 'f1')));
   });
-
-  it('usuario con claims falsos pero sin perfil activo no accede', async () => {
-    await assertFails(getDoc(doc(db(users.disabled), 'areas', AREA_A)));
-    const fake = env.authenticatedContext('fake', { role: 'manager', areaId: AREA_A }).firestore();
-    await assertFails(getDoc(doc(fake, 'areas', AREA_A)));
+  it('usuario deshabilitado no accede', async () => {
+    await assertFails(getDoc(doc(fs(u.disabled), 'companies', A)));
   });
-
-  it('trabajador lee catálogos y su propio perfil, pero no el de otros', async () => {
-    const fs = db(users.worker);
-    await assertSucceeds(getDoc(doc(fs, 'areas', AREA_A)));
-    await assertSucceeds(getDocs(collection(fs, 'categories')));
-    await assertSucceeds(getDoc(doc(fs, 'users', users.worker.uid)));
-    await assertFails(getDoc(doc(fs, 'users', users.worker2.uid)));
-  });
-
-  it('nadie escribe catálogos ni perfiles desde la web', async () => {
-    const fs = db(users.manager);
-    await assertFails(setDoc(doc(fs, 'areas', 'nueva'), { name: 'X', active: true }));
-    await assertFails(setDoc(doc(fs, 'categories', 'x'), { name: 'X', active: true }));
-    await assertFails(updateDoc(doc(fs, 'users', users.manager.uid), { role: 'manager', areaId: AREA_B }));
-  });
-
-  it('jefe lee perfiles de su área, no de otra', async () => {
-    await assertSucceeds(getDoc(doc(db(users.manager), 'users', users.worker.uid)));
-    await assertFails(getDoc(doc(db(users.managerB), 'users', users.worker.uid)));
+  it('nadie escribe catálogos, flujos ni perfiles', async () => {
+    await assertFails(setDoc(doc(fs(u.boss), 'companies', A, 'flows', 'f2'), FLOW));
+    await assertFails(updateDoc(doc(fs(u.worker), 'users', u.worker.uid), { flowId: 'x' }));
+    await assertFails(getDoc(doc(fs(u.worker), 'users', u.boss.uid)));
   });
 });
 
-describe('crear rendición', () => {
-  it('trabajador crea su borrador', async () => {
-    await assertSucceeds(addDoc(collection(db(users.worker), 'reports'), newReport(users.worker)));
+describe('crear y enviar', () => {
+  it('crea borrador propio', async () => {
+    await assertSucceeds(setDoc(doc(reportsOf(u.worker), 'r1'), draft(u.worker)));
   });
-
-  it('no puede crear a nombre de otro, en otra área, o en otro estado', async () => {
-    const fs = db(users.worker);
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { ownerUid: users.worker2.uid })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { areaId: AREA_B })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { status: 'approved' })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { ownerName: 'Otro Nombre' })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { totals: { CLP: 1 } })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { extra: true })));
-    await assertFails(addDoc(collection(fs, 'reports'), newReport(users.worker, { periodFrom: '2026-12-01' })));
+  it('crea y envía en un solo lote con gastos', async () => {
+    const db = fs(u.worker);
+    const b = writeBatch(db);
+    const ref = doc(collection(db, 'companies', A, 'reports'));
+    b.set(ref, draft(u.worker, pendingFields()));
+    b.set(doc(collection(db, 'companies', A, 'reports', ref.id, 'items')), item);
+    await assertSucceeds(b.commit());
   });
-});
-
-describe('lectura de rendiciones', () => {
-  beforeEach(async () => {
-    await seedReport('r1', users.worker, 'submitted');
+  it('no puede inventar aprobadores ni usar otro flujo', async () => {
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'r1'), draft(u.worker, { ...pendingFields(), currentApprovers: ['w2'] })));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'r2'), draft(u.worker, { ...pendingFields(), currentLevel: 1, currentApprovers: ['c1'] })));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'r3'), draft(u.worker, { status: 'approved' })));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'r4'), draft(u.worker, { ownerUid: 'w2' })));
+    await assertFails(setDoc(doc(reportsOf(u.worker), 'r5'), draft(u.worker, { approvals: [entry(u.boss, 'approved')] })));
   });
-
-  it('dueño y jefe del área leen; otro trabajador y jefe de otra área no', async () => {
-    await assertSucceeds(getDoc(doc(db(users.worker), 'reports', 'r1')));
-    await assertSucceeds(getDoc(doc(db(users.manager), 'reports', 'r1')));
-    await assertSucceeds(getDocs(collection(db(users.manager), 'reports', 'r1', 'items')));
-    await assertFails(getDoc(doc(db(users.worker2), 'reports', 'r1')));
-    await assertFails(getDoc(doc(db(users.managerB), 'reports', 'r1')));
-    await assertFails(getDocs(collection(db(users.worker2), 'reports', 'r1', 'items')));
+  it('envía un borrador existente; no edita una enviada', async () => {
+    await seed('r1', u.worker, {});
+    await assertSucceeds(updateDoc(doc(reportsOf(u.worker), 'r1'), { ...pendingFields(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(reportsOf(u.worker), 'r1'), { title: 'Cambio', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(fs(u.worker), 'companies', A, 'reports', 'r1', 'items', 'i9'), item));
   });
-
-  it('consultas: solo propias o del área', async () => {
-    await assertSucceeds(getDocs(query(collection(db(users.worker), 'reports'), where('ownerUid', '==', users.worker.uid))));
-    await assertSucceeds(getDocs(query(collection(db(users.manager), 'reports'), where('areaId', '==', AREA_A))));
-    await assertFails(getDocs(collection(db(users.worker), 'reports')));
-    await assertFails(getDocs(query(collection(db(users.managerB), 'reports'), where('areaId', '==', AREA_A))));
+  it('gastos inválidos se rechazan', async () => {
+    await seed('r1', u.worker, {});
+    const ref = doc(fs(u.worker), 'companies', A, 'reports', 'r1', 'items', 'x');
+    await assertSucceeds(setDoc(ref, item));
+    await assertFails(setDoc(ref, { ...item, amount: -1 }));
+    await assertFails(setDoc(ref, { ...item, amount: 1.5 }));
+    await assertFails(setDoc(ref, { ...item, currency: 'XXX' }));
+    await assertFails(setDoc(ref, { ...item, hack: true }));
   });
-});
-
-describe('editar y enviar', () => {
-  it('dueño agrega ítems y envía su borrador', async () => {
-    await seedReport('r1', users.worker, 'draft', 0);
-    const fs = db(users.worker);
-    await assertSucceeds(setDoc(doc(fs, 'reports', 'r1', 'items', 'i2'), validItem));
-    await assertSucceeds(
-      updateDoc(doc(fs, 'reports', 'r1'), {
-        status: 'submitted',
-        itemCount: 2,
-        totals: { CLP: 30000 },
-        submittedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }),
-    );
+  it('otro trabajador no ve ni edita', async () => {
+    await seed('r1', u.worker, {});
+    await assertFails(getDoc(doc(reportsOf(u.worker2), 'r1')));
+    await assertFails(setDoc(doc(fs(u.worker2), 'companies', A, 'reports', 'r1', 'items', 'i9'), item));
+    await assertFails(getDocs(collection(fs(u.worker2), 'companies', A, 'reports')));
   });
-
-  it('no envía rendición vacía', async () => {
-    await seedReport('r1', users.worker, 'draft', 0);
-    await assertFails(
-      updateDoc(doc(db(users.worker), 'reports', 'r1'), {
-        status: 'submitted',
-        submittedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }),
-    );
-  });
-
-  it('ítems inválidos son rechazados', async () => {
-    await seedReport('r1', users.worker, 'draft');
-    const ref = doc(db(users.worker), 'reports', 'r1', 'items', 'x');
-    await assertFails(setDoc(ref, { ...validItem, amount: -5 }));
-    await assertFails(setDoc(ref, { ...validItem, amount: 10.5 }));
-    await assertFails(setDoc(ref, { ...validItem, currency: 'XXX' }));
-    await assertFails(setDoc(ref, { ...validItem, categoryId: 'no-existe' }));
-    await assertFails(setDoc(ref, { ...validItem, description: '' }));
-    await assertFails(setDoc(ref, { ...validItem, hack: 1 }));
-  });
-
-  it('no puede editar una rendición enviada ni cambiar estados prohibidos', async () => {
-    await seedReport('r1', users.worker, 'submitted');
-    const fs = db(users.worker);
-    await assertFails(updateDoc(doc(fs, 'reports', 'r1'), { title: 'Cambio', updatedAt: serverTimestamp() }));
-    await assertFails(setDoc(doc(fs, 'reports', 'r1', 'items', 'i9'), validItem));
-    await assertFails(deleteDoc(doc(fs, 'reports', 'r1', 'items', 'i1')));
-
-    await seedReport('r2', users.worker, 'draft');
-    await assertFails(updateDoc(doc(fs, 'reports', 'r2'), { status: 'approved', updatedAt: serverTimestamp() }));
-    await assertFails(updateDoc(doc(fs, 'reports', 'r2'), { status: 'paid', updatedAt: serverTimestamp() }));
-    await assertFails(updateDoc(doc(fs, 'reports', 'r2'), { ownerUid: users.worker2.uid, updatedAt: serverTimestamp() }));
-    await assertFails(updateDoc(doc(fs, 'reports', 'r2'), { areaId: AREA_B, updatedAt: serverTimestamp() }));
-  });
-
-  it('otro trabajador no edita ni agrega ítems', async () => {
-    await seedReport('r1', users.worker, 'draft');
-    const fs = db(users.worker2);
-    await assertFails(updateDoc(doc(fs, 'reports', 'r1'), { title: 'Hack', updatedAt: serverTimestamp() }));
-    await assertFails(setDoc(doc(fs, 'reports', 'r1', 'items', 'i9'), validItem));
-  });
-
-  it('rendición rechazada vuelve a ser editable', async () => {
-    await seedReport('r1', users.worker, 'rejected');
-    const fs = db(users.worker);
-    await assertSucceeds(updateDoc(doc(fs, 'reports', 'r1'), { title: 'Corregida', updatedAt: serverTimestamp() }));
-    await assertSucceeds(setDoc(doc(fs, 'reports', 'r1', 'items', 'i2'), validItem));
-  });
-
   it('solo borra borradores propios', async () => {
-    await seedReport('r1', users.worker, 'draft');
-    await seedReport('r2', users.worker, 'submitted');
-    await assertFails(deleteDoc(doc(db(users.worker2), 'reports', 'r1')));
-    await assertFails(deleteDoc(doc(db(users.worker), 'reports', 'r2')));
-    await assertSucceeds(deleteDoc(doc(db(users.worker), 'reports', 'r1')));
+    await seed('r1', u.worker, {});
+    await assertFails(deleteDoc(doc(reportsOf(u.worker2), 'r1')));
+    await assertSucceeds(deleteDoc(doc(reportsOf(u.worker), 'r1')));
   });
 });
 
-describe('aprobación del jefe', () => {
-  const review = (u: (typeof users)[keyof typeof users], comment = '') => ({
-    uid: u.uid,
-    name: u.name,
-    at: serverTimestamp(),
-    comment,
+describe('aprobación por niveles', () => {
+  beforeEach(async () => {
+    await seed('r1', u.worker, { status: 'pending', currentLevel: 0, currentApprovers: ['b1'], approverUids: ['b1', 'c1'] });
   });
 
-  it('jefe aprueba y rechaza (con comentario) en su área', async () => {
-    await seedReport('r1', users.worker, 'submitted');
-    await seedReport('r2', users.worker, 'submitted');
-    const fs = db(users.manager);
-    await assertSucceeds(
-      updateDoc(doc(fs, 'reports', 'r1'), { status: 'manager_approved', managerReview: review(users.manager), updatedAt: serverTimestamp() }),
-    );
-    await assertFails(
-      updateDoc(doc(fs, 'reports', 'r2'), { status: 'rejected', managerReview: review(users.manager), updatedAt: serverTimestamp() }),
-    );
-    await assertSucceeds(
-      updateDoc(doc(fs, 'reports', 'r2'), { status: 'rejected', managerReview: review(users.manager, 'Falta boleta'), updatedAt: serverTimestamp() }),
-    );
+  it('aprobadores leen con sus consultas', async () => {
+    await assertSucceeds(getDocs(query(collection(fs(u.boss), 'companies', A, 'reports'), where('currentApprovers', 'array-contains', 'b1'))));
+    await assertSucceeds(getDocs(query(collection(fs(u.cfo), 'companies', A, 'reports'), where('approverUids', 'array-contains', 'c1'))));
+    await assertSucceeds(getDocs(collection(fs(u.boss), 'companies', A, 'reports', 'r1', 'items')));
   });
 
-  it('jefe no puede: aprobar lo propio, otra área, dar aprobación final, ni tocar montos', async () => {
-    await seedReport('own', users.manager, 'submitted');
-    await seedReport('r1', users.worker, 'submitted');
-    await assertFails(
-      updateDoc(doc(db(users.manager), 'reports', 'own'), { status: 'manager_approved', managerReview: review(users.manager), updatedAt: serverTimestamp() }),
-    );
-    await assertFails(
-      updateDoc(doc(db(users.managerB), 'reports', 'r1'), { status: 'manager_approved', managerReview: review(users.managerB), updatedAt: serverTimestamp() }),
-    );
-    await assertFails(
-      updateDoc(doc(db(users.manager), 'reports', 'r1'), { status: 'approved', managerReview: review(users.manager), updatedAt: serverTimestamp() }),
-    );
-    await assertFails(
-      updateDoc(doc(db(users.manager), 'reports', 'r1'), {
-        status: 'manager_approved',
-        totals: { CLP: 1 },
-        managerReview: review(users.manager),
-        updatedAt: serverTimestamp(),
-      }),
-    );
-    await assertFails(
-      updateDoc(doc(db(users.manager), 'reports', 'r1'), {
-        status: 'manager_approved',
-        managerReview: review(users.worker),
-        updatedAt: serverTimestamp(),
+  it('jefe aprueba y pasa a Finanzas', async () => {
+    await assertSucceeds(
+      updateDoc(doc(reportsOf(u.boss), 'r1'), {
+        status: 'pending', currentLevel: 1, currentApprovers: ['c1'], approvals: [entry(u.boss, 'approved')],
+        updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
       }),
     );
   });
 
-  it('jefe no aprueba rendiciones que no están enviadas', async () => {
-    await seedReport('r1', users.worker, 'draft');
-    await seedReport('r2', users.worker, 'approved');
-    for (const id of ['r1', 'r2']) {
-      await assertFails(
-        updateDoc(doc(db(users.manager), 'reports', id), { status: 'manager_approved', managerReview: review(users.manager), updatedAt: serverTimestamp() }),
-      );
-    }
+  it('jefe aprueba y termina', async () => {
+    await assertSucceeds(
+      updateDoc(doc(reportsOf(u.boss), 'r1'), {
+        status: 'approved', currentApprovers: [], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rechazo exige comentario', async () => {
+    const base = { status: 'rejected', currentApprovers: [], updatedAt: serverTimestamp(), decidedAt: serverTimestamp() };
+    await assertFails(updateDoc(doc(reportsOf(u.boss), 'r1'), { ...base, approvals: [entry(u.boss, 'rejected')] }));
+    await assertSucceeds(updateDoc(doc(reportsOf(u.boss), 'r1'), { ...base, approvals: [entry(u.boss, 'rejected', 0, 'Falta boleta')] }));
+  });
+
+  it('no aprueba quien no está en el nivel actual, ni se falsifica el avance', async () => {
+    const ok = { status: 'approved', currentApprovers: [], updatedAt: serverTimestamp(), decidedAt: serverTimestamp() };
+    await assertFails(updateDoc(doc(reportsOf(u.cfo), 'r1'), { ...ok, approvals: [entry(u.cfo, 'approved')] }));
+    await assertFails(updateDoc(doc(reportsOf(u.worker), 'r1'), { ...ok, approvals: [entry(u.worker, 'approved')] }));
+    await assertFails(updateDoc(doc(reportsOf(u.boss), 'r1'), { ...ok, approvals: [entry(u.cfo, 'approved')] }));
+    await assertFails(
+      updateDoc(doc(reportsOf(u.boss), 'r1'), {
+        status: 'pending', currentLevel: 1, currentApprovers: ['w2'], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(updateDoc(doc(reportsOf(u.boss), 'r1'), { ...ok, totals: { CLP: 1 }, approvals: [entry(u.boss, 'approved')] }));
+    await assertFails(updateDoc(doc(reportsOf(u.boss), 'r1'), { status: 'paid', currentApprovers: [], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp() }));
+  });
+
+  it('no se puede borrar el historial de aprobaciones', async () => {
+    await seed('r2', u.worker, {
+      status: 'pending', currentLevel: 1, currentApprovers: ['c1'], approverUids: ['b1', 'c1'], approvals: [entry(u.boss, 'approved')],
+    });
+    await assertFails(
+      updateDoc(doc(reportsOf(u.cfo), 'r2'), {
+        status: 'approved', currentApprovers: [], approvals: [entry(u.cfo, 'approved', 1)], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('un aprobador no aprueba su propia rendición', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'users', 'b1'), { flowId: 'f1' });
+    });
+    await seed('own', u.boss, { status: 'pending', currentApprovers: ['b1'], approverUids: ['b1', 'c1'] });
+    await assertFails(
+      updateDoc(doc(reportsOf(u.boss), 'own'), {
+        status: 'approved', currentApprovers: [], approvals: [entry(u.boss, 'approved')], updatedAt: serverTimestamp(), decidedAt: serverTimestamp(),
+      }),
+    );
   });
 });

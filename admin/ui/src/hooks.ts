@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from './api';
-import type { Area, Category } from '@rendiciones/shared';
+import type { Area, Category, Company, Flow } from '@rendiciones/shared';
 
 export function useLoad<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const reload = useCallback(async () => {
-    if (!path) return;
+    if (!path) {
+      setData(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -18,16 +21,41 @@ export function useLoad<T>(path: string | null) {
       setLoading(false);
     }
   }, [path]);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
   return { data, error, loading, reload };
 }
 
-export function useCatalog() {
-  const areas = useLoad<Area[]>('/areas');
-  const categories = useLoad<Category[]>('/categories');
+export type CompanyRow = Company & { activeUsers: number };
+
+interface CompanyCtx {
+  companies: CompanyRow[];
+  companyId: string; // '' = todas
+  setCompanyId: (id: string) => void;
+  reloadCompanies: () => Promise<void>;
+  companyName: (id: string | null | undefined) => string;
+  webUrl: string;
+}
+
+export const CompanyContext = createContext<CompanyCtx | null>(null);
+
+export function useCompany() {
+  const c = useContext(CompanyContext);
+  if (!c) throw new Error('Sin CompanyContext');
+  return c;
+}
+
+/** Catálogos de una empresa (áreas, categorías, flujos). */
+export function useCatalog(companyId: string | null | undefined) {
+  const base = companyId ? `/companies/${companyId}` : null;
+  const areas = useLoad<Area[]>(base && `${base}/areas`);
+  const categories = useLoad<Category[]>(base && `${base}/categories`);
+  const flows = useLoad<Flow[]>(base && `${base}/flows`);
   const areaName = (id: string | null | undefined) => areas.data?.find((a) => a.id === id)?.name ?? id ?? '—';
   const categoryName = (id: string) => categories.data?.find((c) => c.id === id)?.name ?? id;
-  return { areas, categories, areaName, categoryName };
+  const flowName = (id: string | null | undefined) => (id ? flows.data?.find((f) => f.id === id)?.name ?? id : 'Sin flujo');
+  return { areas, categories, flows, areaName, categoryName, flowName };
 }
 
 export function fmtDateTime(iso: string | null | undefined) {

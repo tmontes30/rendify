@@ -1,122 +1,104 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { LIMITS, STATUSES, STATUS_LABELS, formatTotals, type Report, type Status } from '@rendiciones/shared';
-import { useProfile } from '../auth';
-import { createReport, fmtDate, friendlyError, listMyReports } from '../data';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { STATUS_LABELS, formatTotals, type Report, type Status } from '@rendiciones/shared';
+import { useSession } from '../auth';
+import { fmtDate, friendlyError, listMyReports } from '../data';
 import { StatusBadge } from '../components/StatusBadge';
 
-function monthRange() {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const last = new Date(y, m, 0).getDate();
-  return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(last)}` };
-}
+const FILTERS: { key: Status | ''; label: string }[] = [
+  { key: '', label: 'Todas' },
+  { key: 'draft', label: STATUS_LABELS.draft },
+  { key: 'pending', label: STATUS_LABELS.pending },
+  { key: 'rejected', label: STATUS_LABELS.rejected },
+  { key: 'approved', label: STATUS_LABELS.approved },
+  { key: 'paid', label: STATUS_LABELS.paid },
+];
 
 export function MyReports() {
-  const { profile } = useProfile();
+  const { profile, company } = useSession();
   const navigate = useNavigate();
   const [reports, setReports] = useState<Report[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Status | ''>('');
-  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    listMyReports(profile.uid).then(setReports, (e) => setError(friendlyError(e)));
-  }, [profile.uid]);
+    listMyReports(company.id, profile.uid).then(setReports, (e) => setError(friendlyError(e)));
+  }, [company.id, profile.uid]);
 
+  const count = (s: Status) => reports?.filter((r) => r.status === s).length ?? 0;
   const shown = (reports ?? []).filter((r) => !filter || r.status === filter);
+  const firstName = profile.displayName.split(' ')[0];
 
   return (
     <div className="stack">
-      <div className="row spread">
-        <h1>Mis rendiciones</h1>
+      <div className="page-header">
+        <div>
+          <h1>Hola, {firstName} 👋</h1>
+          <p className="muted page-sub">Tus rendiciones de gastos en {company.name}.</p>
+        </div>
         <div className="row">
-          <select value={filter} onChange={(e) => setFilter(e.target.value as Status | '')} aria-label="Filtrar por estado" style={{ width: 'auto' }}>
-            <option value="">Todos los estados</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-          </select>
-          <button className="primary" onClick={() => setCreating(true)}>+ Nueva rendición</button>
+          <Link to="/carga-masiva" className="btn">⇪ Carga masiva</Link>
+          <Link to="/nueva" className="btn primary">+ Nueva rendición</Link>
         </div>
       </div>
 
-      {error && <div className="alert error">{error}</div>}
-      {creating && <NewReportForm onCancel={() => setCreating(false)} onCreated={(id) => navigate(`/r/${id}`)} />}
+      <div className="grid grid-tiles">
+        <Tile label="En aprobación" value={count('pending')} tone="info" />
+        <Tile label="Rechazadas (por corregir)" value={count('rejected')} tone="bad" />
+        <Tile label="Aprobadas por pagar" value={count('approved')} tone="good" />
+        <Tile label="Borradores" value={count('draft')} />
+      </div>
 
-      <div className="card table-wrap">
+      {error && <div className="alert error">{error}</div>}
+
+      <div className="card">
+        <nav className="tabs">
+          {FILTERS.map((f) => (
+            <button key={f.key || 'all'} className={filter === f.key ? 'active' : ''} onClick={() => setFilter(f.key)}>
+              {f.label}
+            </button>
+          ))}
+        </nav>
         {!reports ? (
           <p className="muted">Cargando…</p>
         ) : shown.length === 0 ? (
-          <p className="muted">{reports.length ? 'No hay rendiciones con ese estado.' : 'Aún no tienes rendiciones. Crea la primera con “Nueva rendición”.'}</p>
+          <div className="empty">
+            {reports.length ? (
+              <p className="muted">No hay rendiciones con ese estado.</p>
+            ) : (
+              <>
+                <h3>Aún no tienes rendiciones</h3>
+                <p className="muted">Crea la primera: agrega tus gastos y envíala en un solo paso.</p>
+                <Link to="/nueva" className="btn primary">+ Nueva rendición</Link>
+              </>
+            )}
+          </div>
         ) : (
-          <table>
-            <thead>
-              <tr><th>Título</th><th className="hide-sm">Período</th><th>Estado</th><th className="num">Total</th><th className="hide-sm">Actualizada</th></tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id} className="clickable" onClick={() => navigate(`/r/${r.id}`)}>
-                  <td>{r.title}<div className="muted small">{r.itemCount} gasto(s)</div></td>
-                  <td className="hide-sm small">{r.periodFrom} → {r.periodTo}</td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td className="num">{formatTotals(r.totals)}</td>
-                  <td className="hide-sm small muted">{fmtDate(r.updatedAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="report-list">
+            {shown.map((r) => (
+              <button key={r.id} className="report-item" onClick={() => navigate(`/r/${r.id}`)}>
+                <div className="report-main">
+                  <div className="strong">{r.title}</div>
+                  <div className="muted small">
+                    {r.itemCount} gasto(s) · {r.periodFrom} → {r.periodTo} · actualizada {fmtDate(r.updatedAt)}
+                  </div>
+                </div>
+                <StatusBadge status={r.status} />
+                <div className="report-amount">{formatTotals(r.totals)}</div>
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
-
 }
 
-function NewReportForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (id: string) => void }) {
-  const { profile } = useProfile();
-  const def = monthRange();
-  const [title, setTitle] = useState('');
-  const [from, setFrom] = useState(def.from);
-  const [to, setTo] = useState(def.to);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (from > to) return setErr('La fecha de inicio debe ser anterior a la de término.');
-    setBusy(true);
-    setErr(null);
-    try {
-      onCreated(await createReport(profile, { title, periodFrom: from, periodTo: to }));
-    } catch (e2) {
-      setErr(friendlyError(e2));
-      setBusy(false);
-    }
-  }
-
+export function Tile({ label, value, tone }: { label: string; value: number | string; tone?: 'info' | 'good' | 'bad' }) {
   return (
-    <form className="card" onSubmit={submit}>
-      <h2>Nueva rendición</h2>
-      <div className="form-grid">
-        <div className="field" style={{ gridColumn: '1 / -1' }}>
-          <label htmlFor="title">Título</label>
-          <input id="title" required maxLength={LIMITS.title} placeholder="Ej: Gastos octubre / Viaje a Concepción" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="from">Desde</label>
-          <input id="from" type="date" required value={from} onChange={(e) => setFrom(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="to">Hasta</label>
-          <input id="to" type="date" required value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-      </div>
-      {err && <div className="alert error">{err}</div>}
-      <div className="row" style={{ marginTop: 8 }}>
-        <button className="primary" type="submit" disabled={busy}>{busy ? 'Creando…' : 'Crear y agregar gastos'}</button>
-        <button type="button" onClick={onCancel}>Cancelar</button>
-      </div>
-    </form>
+    <div className={`card tile${tone ? ` tone-${tone}` : ''}`}>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+    </div>
   );
 }

@@ -1,45 +1,39 @@
 rules_version = '2';
 
-// Reglas de seguridad para la web pública (trabajadores y jefes de área).
+// Reglas de seguridad para la web pública (usuarios de las empresas).
 // La app local del owner usa el Admin SDK y NO pasa por estas reglas.
 // Principio: todo lo que no esté explícitamente permitido está denegado.
+//
+// Estructura:
+//   users/{uid}                              perfil (escrito solo por el owner)
+//   companies/{cid}                          empresa
+//   companies/{cid}/areas|categories|flows   catálogos de la empresa
+//   companies/{cid}/reports/{rid}/items/{iid}
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ---------- Helpers ----------
-    function signedIn() {
-      return request.auth != null;
+    function uid() {
+      return request.auth.uid;
     }
 
-    function token() {
-      return request.auth.token;
-    }
-
-    function myProfilePath() {
+    function profilePath() {
       return /databases/$(database)/documents/users/$(request.auth.uid);
     }
 
-    // Usuario con rol asignado por el owner (custom claims) y cuenta activa.
-    // El perfil users/{uid} (escrito solo por el owner) debe coincidir con los
-    // claims del token: así deshabilitar o cambiar rol/área corta el acceso
-    // de inmediato, sin esperar a que expire el token (1h).
-    function hasRole() {
-      return signedIn()
-        && token().role in ['worker', 'manager']
-        && token().areaId is string
-        && exists(myProfilePath())
-        && get(myProfilePath()).data.active == true
-        && get(myProfilePath()).data.role == token().role
-        && get(myProfilePath()).data.areaId == token().areaId;
+    function profile() {
+      return get(profilePath()).data;
     }
 
-    function isManager() {
-      return hasRole() && token().role == 'manager';
-    }
-
-    function myArea() {
-      return token().areaId;
+    // Miembro activo de la empresa: el claim del token y el perfil (fuente de verdad)
+    // deben coincidir. Deshabilitar o mover de empresa corta el acceso de inmediato.
+    function member(cid) {
+      return request.auth != null
+        && request.auth.token.companyId == cid
+        && exists(profilePath())
+        && profile().active == true
+        && profile().companyId == cid;
     }
 
     function str(v, min, max) {
@@ -55,141 +49,211 @@ service cloud.firestore {
       return ['CLP', 'USD', 'EUR', 'ARS', 'PEN', 'BRL', 'MXN', 'COP'];
     }
 
-    // ---------- Catálogos (solo lectura desde la web) ----------
-    match /areas/{areaId} {
-      allow read: if hasRole();
+    // ---------- Perfil propio ----------
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;
     }
 
-    match /categories/{categoryId} {
-      allow read: if hasRole();
+    // ---------- Empresa ----------
+    match /companies/{cid} {
+      allow read: if member(cid);
       allow write: if false;
-    }
 
-    // ---------- Perfiles (escritos solo por el owner) ----------
-    match /users/{uid} {
-      allow read: if hasRole()
-        && (request.auth.uid == uid
-            || (isManager() && resource.data.areaId == myArea()));
-      allow write: if false;
-    }
-
-    // ---------- Rendiciones ----------
-    match /reports/{reportId} {
-
-      function reportFields(d) {
-        return str(d.title, 1, 120)
-          && isDate(d.periodFrom)
-          && isDate(d.periodTo)
-          && d.periodFrom <= d.periodTo
-          && d.totals is map
-          && d.totals.keys().hasOnly(currencies())
-          && d.itemCount is int
-          && d.itemCount >= 0
-          && d.itemCount <= 200;
+      function flowDoc(fid) {
+        return get(/databases/$(database)/documents/companies/$(cid)/flows/$(fid)).data;
       }
 
-      function isOwner() {
-        return hasRole() && resource.data.ownerUid == request.auth.uid;
+      match /areas/{id} {
+        allow read: if member(cid);
+        allow write: if false;
       }
 
-      allow read: if hasRole()
-        && (resource.data.ownerUid == request.auth.uid
-            || (isManager() && resource.data.areaId == myArea()));
+      match /categories/{id} {
+        allow read: if member(cid);
+        allow write: if false;
+      }
 
-      allow create: if hasRole()
-        && request.resource.data.keys().hasOnly([
-             'ownerUid', 'ownerName', 'areaId', 'title', 'periodFrom', 'periodTo',
-             'status', 'totals', 'itemCount', 'createdAt', 'updatedAt'])
-        && request.resource.data.keys().hasAll([
-             'ownerUid', 'ownerName', 'areaId', 'title', 'periodFrom', 'periodTo',
-             'status', 'totals', 'itemCount', 'createdAt', 'updatedAt'])
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.ownerName == get(myProfilePath()).data.displayName
-        && request.resource.data.areaId == myArea()
-        && request.resource.data.status == 'draft'
-        && request.resource.data.itemCount == 0
-        && request.resource.data.totals.size() == 0
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && reportFields(request.resource.data);
+      match /flows/{id} {
+        allow read: if member(cid);
+        allow write: if false;
+      }
 
-      // El dueño edita (o envía) mientras esté en borrador o rechazada.
-      allow update: if isOwner()
-        && resource.data.status in ['draft', 'rejected']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'title', 'periodFrom', 'periodTo', 'status', 'totals', 'itemCount',
-             'updatedAt', 'submittedAt'])
-        && (request.resource.data.status == resource.data.status
-            || request.resource.data.status == 'submitted')
-        && request.resource.data.updatedAt == request.time
-        && reportFields(request.resource.data)
-        && (request.resource.data.status != 'submitted'
-            || (request.resource.data.submittedAt == request.time
-                && request.resource.data.itemCount > 0));
+      // ---------- Rendiciones ----------
+      match /reports/{rid} {
 
-      // El jefe de área aprueba o rechaza rendiciones enviadas de su área (no las propias).
-      allow update: if isManager()
-        && resource.data.areaId == myArea()
-        && resource.data.ownerUid != request.auth.uid
-        && resource.data.status == 'submitted'
-        && request.resource.data.status in ['manager_approved', 'rejected']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'status', 'managerReview', 'updatedAt'])
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.managerReview is map
-        && request.resource.data.managerReview.keys().hasOnly(['uid', 'name', 'at', 'comment'])
-        && request.resource.data.managerReview.uid == request.auth.uid
-        && request.resource.data.managerReview.name == get(myProfilePath()).data.displayName
-        && request.resource.data.managerReview.at == request.time
-        && str(request.resource.data.managerReview.comment, 0, 500)
-        && (request.resource.data.status != 'rejected'
-            || request.resource.data.managerReview.comment.size() > 0);
-
-      allow delete: if isOwner() && resource.data.status == 'draft';
-
-      // ---------- Ítems (gastos) de la rendición ----------
-      match /items/{itemId} {
-        function parent() {
-          return get(/databases/$(database)/documents/reports/$(reportId)).data;
+        function reportFields(d) {
+          return str(d.title, 1, 120)
+            && isDate(d.periodFrom)
+            && isDate(d.periodTo)
+            && d.periodFrom <= d.periodTo
+            && d.totals is map
+            && d.totals.keys().hasOnly(currencies())
+            && d.itemCount is int
+            && d.itemCount >= 0
+            && d.itemCount <= 200;
         }
 
-        function parentEditableByMe() {
-          return hasRole()
-            && parent().ownerUid == request.auth.uid
-            && parent().status in ['draft', 'rejected'];
+        // Al enviar: el flujo debe ser el asignado al usuario y los aprobadores
+        // deben ser exactamente los del primer nivel del flujo.
+        function validSubmission(d) {
+          return d.flowId is string
+            && d.flowId == profile().flowId
+            && flowDoc(d.flowId).levels.size() > 0
+            && d.currentLevel == 0
+            && d.currentApprovers == flowDoc(d.flowId).levels[0].approvers
+            && d.approverUids == flowDoc(d.flowId).allApprovers
+            && d.itemCount > 0
+            && d.submittedAt == request.time;
         }
 
-        function validItem(d) {
-          return d.keys().hasOnly([
-                   'date', 'categoryId', 'description', 'vendor', 'docType',
-                   'docNumber', 'amount', 'currency'])
-            && d.keys().hasAll([
-                   'date', 'categoryId', 'description', 'vendor', 'docType',
-                   'docNumber', 'amount', 'currency'])
-            && isDate(d.date)
-            && str(d.categoryId, 1, 64)
-            && get(/databases/$(database)/documents/categories/$(d.categoryId)).data.active == true
-            && str(d.description, 1, 500)
-            && str(d.vendor, 0, 120)
-            && d.docType in ['boleta', 'factura', 'otro']
-            && str(d.docNumber, 0, 40)
-            && d.amount is int
-            && d.amount > 0
-            && d.amount <= 1000000000000
-            && d.currency in currencies();
+        function emptyFlowState(d) {
+          return d.currentLevel == 0 && d.currentApprovers.size() == 0 && d.approverUids.size() == 0;
         }
 
-        allow read: if hasRole()
-          && (parent().ownerUid == request.auth.uid
-              || (isManager() && parent().areaId == myArea()));
+        allow read: if member(cid)
+          && (resource.data.ownerUid == uid()
+              || uid() in resource.data.approverUids
+              || uid() in resource.data.currentApprovers);
 
-        allow create, update: if parentEditableByMe() && validItem(request.resource.data);
+        allow create: if member(cid)
+          && request.resource.data.keys().hasOnly([
+               'ownerUid', 'ownerName', 'areaId', 'flowId', 'title', 'periodFrom', 'periodTo',
+               'status', 'totals', 'itemCount', 'currentLevel', 'currentApprovers',
+               'approverUids', 'approvals', 'createdAt', 'updatedAt', 'submittedAt'])
+          && request.resource.data.ownerUid == uid()
+          && request.resource.data.ownerName == profile().displayName
+          && request.resource.data.areaId == profile().areaId
+          && request.resource.data.approvals.size() == 0
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && reportFields(request.resource.data)
+          && ((request.resource.data.status == 'draft' && emptyFlowState(request.resource.data))
+              || (request.resource.data.status == 'pending' && validSubmission(request.resource.data)));
 
-        allow delete: if parentEditableByMe();
+        // Dueño: edita su borrador/rechazada sin enviarla.
+        allow update: if member(cid)
+          && resource.data.ownerUid == uid()
+          && resource.data.status in ['draft', 'rejected']
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'title', 'periodFrom', 'periodTo', 'totals', 'itemCount', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && reportFields(request.resource.data);
+
+        // Dueño: envía (o reenvía) a aprobación.
+        allow update: if member(cid)
+          && resource.data.ownerUid == uid()
+          && resource.data.status in ['draft', 'rejected']
+          && request.resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'title', 'periodFrom', 'periodTo', 'totals', 'itemCount', 'updatedAt',
+               'status', 'flowId', 'currentLevel', 'currentApprovers', 'approverUids', 'submittedAt'])
+          && request.resource.data.updatedAt == request.time
+          && reportFields(request.resource.data)
+          && validSubmission(request.resource.data);
+
+        // Aprobador del nivel actual: aprueba (avanza o termina) o rechaza.
+        function lastApproval(before, after) {
+          return after.approvals[before.approvals.size()];
+        }
+
+        function validApprovalEntry(before, after) {
+          let a = lastApproval(before, after);
+          return after.approvals.size() == before.approvals.size() + 1
+            // (slice vacío [0:0] da error en las reglas, por eso el caso 0 va aparte)
+            && (before.approvals.size() == 0
+                || after.approvals[0:before.approvals.size()] == before.approvals)
+            && a.keys().hasOnly(['level', 'levelName', 'uid', 'name', 'decision', 'comment', 'atMs'])
+            && a.keys().hasAll(['level', 'levelName', 'uid', 'name', 'decision', 'comment', 'atMs'])
+            && a.uid == uid()
+            && a.name == profile().displayName
+            && a.level == before.currentLevel
+            && str(a.levelName, 1, 100)
+            && str(a.comment, 0, 500)
+            && a.atMs is int
+            && a.decision in ['approved', 'rejected'];
+        }
+
+        allow update: if member(cid)
+          && resource.data.status == 'pending'
+          && uid() in resource.data.currentApprovers
+          && resource.data.ownerUid != uid()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'status', 'currentLevel', 'currentApprovers', 'approvals', 'updatedAt', 'decidedAt'])
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.decidedAt == request.time
+          && validApprovalEntry(resource.data, request.resource.data)
+          && (
+            // Aprueba y pasa a un nivel posterior del mismo flujo
+            (request.resource.data.status == 'pending'
+              && lastApproval(resource.data, request.resource.data).decision == 'approved'
+              && request.resource.data.currentLevel > resource.data.currentLevel
+              && request.resource.data.currentLevel < flowDoc(resource.data.flowId).levels.size()
+              && request.resource.data.currentApprovers
+                   == flowDoc(resource.data.flowId).levels[request.resource.data.currentLevel].approvers)
+            // Aprueba y la rendición queda aprobada
+            || (request.resource.data.status == 'approved'
+              && lastApproval(resource.data, request.resource.data).decision == 'approved'
+              && request.resource.data.currentApprovers.size() == 0)
+            // Rechaza con comentario
+            || (request.resource.data.status == 'rejected'
+              && lastApproval(resource.data, request.resource.data).decision == 'rejected'
+              && lastApproval(resource.data, request.resource.data).comment.size() > 0
+              && request.resource.data.currentApprovers.size() == 0)
+          );
+
+        allow delete: if member(cid)
+          && resource.data.ownerUid == uid()
+          && resource.data.status == 'draft';
+
+        // ---------- Gastos ----------
+        match /items/{iid} {
+          function reportPath() {
+            return /databases/$(database)/documents/companies/$(cid)/reports/$(rid);
+          }
+
+          // Se permite escribir si la rendición es propia y estaba editable
+          // (o se está creando en el mismo lote).
+          function editableByMe() {
+            return member(cid)
+              && getAfter(reportPath()).data.ownerUid == uid()
+              && (!exists(reportPath()) || get(reportPath()).data.status in ['draft', 'rejected']);
+          }
+
+          function validItem(d) {
+            return d.keys().hasOnly([
+                     'date', 'categoryId', 'description', 'vendor', 'docType',
+                     'docNumber', 'amount', 'currency'])
+              && d.keys().hasAll([
+                     'date', 'categoryId', 'description', 'vendor', 'docType',
+                     'docNumber', 'amount', 'currency'])
+              && isDate(d.date)
+              && str(d.categoryId, 1, 64)
+              && str(d.description, 1, 500)
+              && str(d.vendor, 0, 120)
+              && d.docType in ['boleta', 'factura', 'otro']
+              && str(d.docNumber, 0, 40)
+              && d.amount is int
+              && d.amount > 0
+              && d.amount <= 1000000000000
+              && d.currency in currencies();
+          }
+
+          allow read: if member(cid)
+            && (get(reportPath()).data.ownerUid == uid()
+                || uid() in get(reportPath()).data.approverUids
+                || uid() in get(reportPath()).data.currentApprovers);
+
+          allow create, update: if editableByMe() && validItem(request.resource.data);
+
+          allow delete: if member(cid)
+            && get(reportPath()).data.ownerUid == uid()
+            && get(reportPath()).data.status in ['draft', 'rejected'];
+        }
       }
     }
 
-    // Cualquier otra colección: denegada.
+    // Cualquier otra ruta: denegada.
   }
 }
