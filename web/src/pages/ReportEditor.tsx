@@ -168,6 +168,8 @@ export function ReportEditor({
         add: pendingAtt.map(({ key: _k, ...a }) => a),
         remove: removedAtt,
       });
+      setBusy(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       navigate(`/r/${id}`, { replace: true, state: { flash: submit ? 'sent' : 'saved' } });
     } catch (e) {
       setError(friendlyError(e));

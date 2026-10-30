@@ -51,10 +51,12 @@ export function ReportPage() {
     }
   }, [company.id, id]);
 
+  // Recargar también al volver a la misma rendición (p. ej. tras guardar la corrección
+  // de una rechazada): cada navegación trae un location.key nuevo.
   useEffect(() => {
     setEditing(false);
     void load();
-  }, [load]);
+  }, [load, location.key]);
 
   if (notFound) return <div className="card empty">Rendición no encontrada. <Link to="/mis-rendiciones">Volver</Link></div>;
   if (error && !data) return <div className="alert error">{error}</div>;
