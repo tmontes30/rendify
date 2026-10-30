@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth, useSession } from '../auth';
-import { listPayments, listPendingForMe } from '../data';
+import { watchPayments, watchPendingForMe } from '../data';
 import { useEmulator } from '../firebase';
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -10,18 +10,36 @@ export function Layout({ children }: { children: ReactNode }) {
   const { profile, company, areaName } = useSession();
   const [pendingCount, setPendingCount] = useState(0);
   const [toPayCount, setToPayCount] = useState(0);
-  const location = useLocation();
 
-  // Contador de pendientes para aprobadores (se refresca al navegar).
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Contadores en vivo; avisa cuando llega algo nuevo.
   useEffect(() => {
     if (!profile.isApprover) return;
-    listPendingForMe(company.id, profile.uid).then((r) => setPendingCount(r.length), () => undefined);
-  }, [profile.isApprover, company.id, profile.uid, location.pathname]);
+    let prev: number | null = null;
+    return watchPendingForMe(company.id, profile.uid, (r) => {
+      if (prev != null && r.length > prev) setToast(r.length - prev === 1 ? '🔔 Te llegó una rendición para aprobar' : `🔔 Te llegaron ${r.length - prev} rendiciones para aprobar`);
+      prev = r.length;
+      setPendingCount(r.length);
+    });
+  }, [profile.isApprover, company.id, profile.uid]);
 
   useEffect(() => {
     if (!profile.paymentsUser) return;
-    listPayments(company.id, profile.uid).then((r) => setToPayCount(r.filter((x) => x.status === 'approved').length), () => undefined);
-  }, [profile.paymentsUser, company.id, profile.uid, location.pathname]);
+    let prev: number | null = null;
+    return watchPayments(company.id, profile.uid, (r) => {
+      const n = r.filter((x) => x.status === 'approved').length;
+      if (prev != null && n > prev) setToast('💳 Hay una nueva rendición lista para pagar');
+      prev = n;
+      setToPayCount(n);
+    });
+  }, [profile.paymentsUser, company.id, profile.uid]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const initials = profile.displayName
     .split(' ')
@@ -102,6 +120,11 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="main">
         <div className="container">{children}</div>
       </main>
+      {toast && (
+        <button className="live-toast" onClick={() => setToast(null)}>
+          {toast}
+        </button>
+      )}
     </div>
   );
 }

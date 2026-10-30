@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -312,4 +313,78 @@ export async function compressImage(file: File): Promise<NewAttachment> {
     maxSide = Math.round(maxSide * 0.75);
   }
   throw new Error('IMAGE_TOO_BIG');
+}
+
+// ---------- Tiempo real: la página se actualiza sola cuando cambian los datos ----------
+type Unsub = () => void;
+const errHandler = (onError?: (e: unknown) => void) => (e: unknown) => onError?.(e);
+
+export function watchMyReports(cid: string, uid: string, cb: (r: Report[]) => void, onError?: (e: unknown) => void): Unsub {
+  return onSnapshot(query(reportsCol(cid), where('ownerUid', '==', uid), orderBy('updatedAt', 'desc')), (snap) => cb(asReports(snap.docs)), errHandler(onError));
+}
+
+export function watchPendingForMe(cid: string, uid: string, cb: (r: Report[]) => void, onError?: (e: unknown) => void): Unsub {
+  return onSnapshot(
+    query(reportsCol(cid), where('currentApprovers', 'array-contains', uid)),
+    (snap) => cb(asReports(snap.docs).filter((r) => r.status === 'pending' && r.ownerUid !== uid)),
+    errHandler(onError),
+  );
+}
+
+export function watchApproverHistory(cid: string, uid: string, cb: (r: Report[]) => void, onError?: (e: unknown) => void): Unsub {
+  return onSnapshot(
+    query(reportsCol(cid), where('approverUids', 'array-contains', uid)),
+    (snap) => cb(asReports(snap.docs).filter((r) => r.ownerUid !== uid && r.approvals.some((a) => a.uid === uid))),
+    errHandler(onError),
+  );
+}
+
+/** Pagos en vivo: rendiciones aprobadas/pagadas de los flujos que paga el usuario. */
+export function watchPayments(cid: string, uid: string, cb: (r: Report[]) => void, onError?: (e: unknown) => void): Unsub {
+  let mine = new Set<string>();
+  let last: Report[] = [];
+  const emit = () => cb(last.filter((r) => r.flowId && mine.has(r.flowId) && r.ownerUid !== uid && (r.status === 'approved' || r.status === 'paid')));
+  const u1 = onSnapshot(
+    query(collection(db, 'companies', cid, 'flows'), where('payerUid', '==', uid)),
+    (snap) => {
+      mine = new Set(snap.docs.map((d) => d.id));
+      emit();
+    },
+    errHandler(onError),
+  );
+  const u2 = onSnapshot(
+    query(reportsCol(cid), where('approverUids', 'array-contains', uid)),
+    (snap) => {
+      last = asReports(snap.docs);
+      emit();
+    },
+    errHandler(onError),
+  );
+  return () => {
+    u1();
+    u2();
+  };
+}
+
+/** Avisa cada vez que cambia una rendición (para recargar su detalle). */
+export function watchReportChanges(cid: string, id: string, onChange: () => void): Unsub {
+  let first = true;
+  let lastStamp = '';
+  return onSnapshot(
+    doc(db, 'companies', cid, 'reports', id),
+    (snap) => {
+      const d = snap.data();
+      const stamp = `${d?.status}|${d?.currentLevel}|${(d?.approvals ?? []).length}|${toDate(d?.updatedAt)?.getTime() ?? ''}`;
+      if (first) {
+        first = false;
+        lastStamp = stamp;
+        return;
+      }
+      if (stamp !== lastStamp && !snap.metadata.hasPendingWrites) {
+        lastStamp = stamp;
+        onChange();
+      }
+    },
+    () => undefined,
+  );
 }

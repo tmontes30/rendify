@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { STATUS_LABELS, formatTotals, type Report, type Status } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { fmtDate, friendlyError, listMyReports } from '../data';
+import { fmtDate, friendlyError, watchMyReports } from '../data';
 import { ReportRow } from '../components/ReportRow';
 import { LogoLoader } from '@rendiciones/shared/Busy';
 
@@ -29,7 +29,8 @@ export function MyReports() {
   };
 
   useEffect(() => {
-    listMyReports(company.id, profile.uid).then(setReports, (e) => setError(friendlyError(e)));
+    // En vivo: los cambios de estado (aprobada, rechazada, pagada) aparecen solos.
+    return watchMyReports(company.id, profile.uid, setReports, (e) => setError(friendlyError(e)));
   }, [company.id, profile.uid]);
 
   const count = (s: Status) => reports?.filter((r) => r.status === s).length ?? 0;

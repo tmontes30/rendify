@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { formatTotals, type Currency, type Report, type Totals } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { fmtDate, friendlyError, listPayments, toDate } from '../data';
+import { fmtDate, friendlyError, toDate, watchPayments } from '../data';
 import { ReportRow } from '../components/ReportRow';
 import { Tile } from './MyReports';
 import { LogoLoader } from '@rendiciones/shared/Busy';
@@ -23,7 +23,8 @@ export function Payments() {
   const [tab, setTab] = useState<Tab>('topay');
 
   useEffect(() => {
-    listPayments(company.id, profile.uid).then(setReports, (e) => setError(friendlyError(e)));
+    // En vivo: las rendiciones aparecen apenas quedan aprobadas por completo.
+    return watchPayments(company.id, profile.uid, setReports, (e) => setError(friendlyError(e)));
   }, [company.id, profile.uid]);
 
   const all = reports ?? [];

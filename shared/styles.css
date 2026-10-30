@@ -631,3 +631,11 @@ button.good:hover { background: var(--good-soft); }
   .speed-row { grid-template-columns: 1fr 1fr; }
   .speed-row > :first-child, .speed-track { grid-column: 1 / -1; }
 }
+
+/* Aviso en vivo */
+.live-toast {
+  position: fixed; right: 20px; bottom: 20px; z-index: 110; max-width: 360px;
+  background: var(--sidebar); color: #fff; border: none; border-radius: var(--radius-sm);
+  padding: 12px 16px; box-shadow: var(--shadow-lg); font-weight: 600; text-align: left; animation: fade-in 0.2s ease-out;
+}
+.live-toast:hover { background: var(--sidebar-active); }

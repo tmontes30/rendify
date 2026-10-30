@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   DOC_TYPE_LABELS,
@@ -18,7 +18,7 @@ import {
   type Report,
 } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories, registerPayment } from '../data';
+import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories, registerPayment, watchReportChanges } from '../data';
 import { StatusBadge } from '../components/StatusBadge';
 import { ResubmittedNotice } from '../components/ReportRow';
 import { AttachmentsViewer } from '../components/Attachments';
@@ -57,6 +57,18 @@ export function ReportPage() {
     setEditing(false);
     void load();
   }, [load, location.key]);
+
+  // En vivo: si otra persona aprueba, rechaza o paga mientras la miras, se actualiza
+  // (salvo que la estés editando).
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  useEffect(
+    () =>
+      watchReportChanges(company.id, id, () => {
+        if (!editingRef.current) void load();
+      }),
+    [company.id, id, load],
+  );
 
   if (notFound) return <div className="card empty">Rendición no encontrada. <Link to="/mis-rendiciones">Volver</Link></div>;
   if (error && !data) return <div className="alert error">{error}</div>;

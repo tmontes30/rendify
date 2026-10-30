@@ -24,6 +24,14 @@ export function useLoad<T>(path: string | null) {
   useEffect(() => {
     void reload();
   }, [reload]);
+  // Al volver a esta pestaña del navegador, traer los datos más recientes.
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') void reload();
+    };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => document.removeEventListener('visibilitychange', onFocus);
+  }, [reload]);
   return { data, error, loading, reload };
 }
 

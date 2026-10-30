@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { resubmissionInfo, type Report } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { fmtDate, friendlyError, listApproverHistory, listPendingForMe } from '../data';
+import { fmtDate, friendlyError, watchApproverHistory, watchPendingForMe } from '../data';
 import { ReportRow } from '../components/ReportRow';
 import { LogoLoader } from '@rendiciones/shared/Busy';
 
@@ -15,11 +15,18 @@ export function Approvals() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listPendingForMe(company.id, profile.uid).then(
+    // En vivo: si otro aprobador avanza una rendición a tu nivel, aparece sola.
+    const u1 = watchPendingForMe(
+      company.id,
+      profile.uid,
       (rs) => setPending(rs.sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)))),
       (e) => setError(friendlyError(e)),
     );
-    listApproverHistory(company.id, profile.uid).then(setHistory, () => setHistory([]));
+    const u2 = watchApproverHistory(company.id, profile.uid, setHistory, () => setHistory([]));
+    return () => {
+      u1();
+      u2();
+    };
   }, [company.id, profile.uid]);
 
   const resent = (pending ?? []).filter((r) => resubmissionInfo(r).round > 1);

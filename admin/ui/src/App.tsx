@@ -57,11 +57,11 @@ export function App() {
     );
   }, [companyId]);
 
-  // Contador de notificaciones: al cambiar de sección/empresa y cada 2 minutos.
+  // Contador de notificaciones: al cambiar de sección/empresa y cada 30 segundos.
   useEffect(() => {
     if (!session) return;
     refreshCount();
-    const t = setInterval(refreshCount, 120_000);
+    const t = setInterval(refreshCount, 30_000);
     return () => clearInterval(t);
   }, [session, page, refreshCount]);
 
