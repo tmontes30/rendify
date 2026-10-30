@@ -446,3 +446,15 @@ describe('directorio público de empresas', () => {
     await assertFails(setDoc(doc(fs(u.admin), 'publicCompanies', A), { name: 'Hack' }));
   });
 });
+
+describe('reacomodar pendientes al editar el flujo', () => {
+  it('el admin de personal reacomoda solo de forma consistente con el flujo vigente', async () => {
+    await seed('r1', u.worker, { status: 'pending', currentLevel: 1, currentApprovers: ['b1'], approverUids: ['b1', 'c1', 'p1'] });
+    const ref = doc(fs(u.admin), 'companies', A, 'reports', 'r1');
+    await assertSucceeds(updateDoc(ref, { currentLevel: 0, currentApprovers: ['b1'] }));
+    await assertFails(updateDoc(ref, { currentLevel: 1, currentApprovers: ['b1'] }));
+    await assertFails(updateDoc(ref, { currentLevel: 0, currentApprovers: ['a1'] }));
+    await assertSucceeds(updateDoc(ref, { currentLevel: 2, currentApprovers: [] }));
+    await assertFails(updateDoc(doc(fs(u.worker), 'companies', A, 'reports', 'r1'), { currentLevel: 0, currentApprovers: ['b1'] }));
+  });
+});

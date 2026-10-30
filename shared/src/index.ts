@@ -290,6 +290,26 @@ export function startLevel(levels: FlowLevel[], uid: string): number {
   return 0;
 }
 
+/** Decisiones de la ronda actual (después del último rechazo). */
+export function currentRoundApprovals(approvals: Approval[]): Approval[] {
+  let last = -1;
+  approvals.forEach((a, i) => a.decision === 'rejected' && (last = i));
+  return approvals.slice(last + 1);
+}
+
+/**
+ * Reacomoda una rendición en aprobación al flujo vigente (cuando el flujo se editó después
+ * del envío): parte en el nivel que le corresponde a quien la envió y avanza por los niveles
+ * que ya tienen una aprobación de alguno de sus aprobadores en la ronda actual.
+ * Si no queda nivel, espera al owner (currentApprovers vacío).
+ */
+export function rerouteToFlow(levels: FlowLevel[], ownerUid: string, approvals: Approval[]) {
+  const approvedBy = new Set(currentRoundApprovals(approvals).filter((a) => a.decision === 'approved').map((a) => a.uid));
+  let i = startLevel(levels, ownerUid);
+  while (i < levels.length && levels[i].approvers.some((u) => approvedBy.has(u))) i++;
+  return { currentLevel: i, currentApprovers: i < levels.length ? levels[i].approvers : [] };
+}
+
 export interface Resubmission {
   /** Número de envío actual (1 = primer envío). */
   round: number;

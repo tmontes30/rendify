@@ -141,7 +141,8 @@ function Progress({ report, flow }: { report: Report; flow: Flow | null }) {
     else if (i < report.currentLevel || ['approved', 'paid'].includes(report.status)) state = 'skipped';
     steps.push({
       title: l.name,
-      who: decision ? decision.name : l.approvers.map(nameOf).join(' o '),
+      // En el nivel actual se muestra a quién espera realmente la rendición.
+      who: decision ? decision.name : state === 'current' ? report.currentApprovers.map(nameOf).join(' o ') : l.approvers.map(nameOf).join(' o '),
       state,
       note: decision ? (decision.comment ? `“${decision.comment}”` : new Date(decision.atMs).toLocaleDateString('es-CL')) : state === 'skipped' ? 'No requerido' : undefined,
     });
@@ -168,8 +169,19 @@ function Progress({ report, flow }: { report: Report; flow: Flow | null }) {
     state: ['approved', 'paid'].includes(report.status) ? 'done' : report.status === 'rejected' ? 'todo' : 'todo',
   });
 
+  const outdated =
+    report.status === 'pending' &&
+    !!flow &&
+    report.currentApprovers.length > 0 &&
+    JSON.stringify(flow.levels[report.currentLevel]?.approvers ?? []) !== JSON.stringify(report.currentApprovers);
+
   return (
     <div>
+      {outdated && (
+        <div className="alert warn small" style={{ marginBottom: 10 }}>
+          El flujo se modificó después del envío. Hoy espera a <b>{report.currentApprovers.map(nameOf).join(' o ')}</b>; al guardar el flujo de nuevo se reacomoda.
+        </div>
+      )}
       {report.status === 'rejected' && (
         <div className="alert error small" style={{ marginBottom: 10 }}>
           Rechazada{rejectComment(report) ? `: ${rejectComment(report)}` : ''}. Corrígela y vuelve a enviarla.

@@ -216,13 +216,25 @@ service cloud.firestore {
 
         // Administrador de personal: al cambiar quién paga en un flujo, actualiza quién puede
         // ver las rendiciones ya enviadas (solo personas que participan en ese flujo).
+        // Si el flujo se editó, también reacomoda las pendientes: el nivel y sus aprobadores
+        // deben calzar exactamente con el flujo vigente (o quedar para el owner al final).
         allow update: if companyAdmin(cid)
           && resource.data.status != 'draft'
           && resource.data.flowId is string
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approverUids'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approverUids', 'currentLevel', 'currentApprovers'])
           && request.resource.data.approverUids is list
           && request.resource.data.approverUids.hasOnly(
-               resource.data.approverUids.concat(flowDoc(resource.data.flowId).allApprovers));
+               resource.data.approverUids.concat(flowDoc(resource.data.flowId).allApprovers))
+          && ((request.resource.data.currentLevel == resource.data.currentLevel
+               && request.resource.data.currentApprovers == resource.data.currentApprovers)
+              || (resource.data.status == 'pending'
+                  && request.resource.data.currentLevel is int
+                  && request.resource.data.currentLevel >= 0
+                  && ((request.resource.data.currentLevel < flowDoc(resource.data.flowId).levels.size()
+                       && request.resource.data.currentApprovers
+                            == flowDoc(resource.data.flowId).levels[request.resource.data.currentLevel].approvers)
+                      || (request.resource.data.currentLevel == flowDoc(resource.data.flowId).levels.size()
+                          && request.resource.data.currentApprovers.size() == 0))));
 
         allow create: if member(cid)
           && request.resource.data.keys().hasOnly([

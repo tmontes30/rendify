@@ -2,7 +2,7 @@
 // Las reglas de Firestore limitan todo a la empresa del administrador.
 import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { flowDerived, isSpecialProfile, type Area, type Flow, type FlowLevel, type UserProfile } from '@rendiciones/shared';
+import { flowDerived, isSpecialProfile, rerouteToFlow, type Approval, type Area, type Flow, type FlowLevel, type UserProfile } from '@rendiciones/shared';
 import { auth, createAccount, db } from './firebase';
 import type { Session } from './auth';
 
@@ -124,7 +124,20 @@ export async function saveFlow(
       await updateDoc(r.ref, { approverUids: [...viewers] });
     }
   }
-  return { id: ref.id, assigned };
+  // Rendiciones en aprobación con este flujo: reacomodarlas al flujo vigente.
+  let rerouted = 0;
+  if (flowId) {
+    const pending = await getDocs(query(collection(db, 'companies', cid, 'reports'), where('flowId', '==', ref.id), where('status', '==', 'pending')));
+    for (const r of pending.docs) {
+      const d = r.data();
+      const next = rerouteToFlow(derived.levels, d.ownerUid as string, (d.approvals ?? []) as Approval[]);
+      if (next.currentLevel === d.currentLevel && JSON.stringify(next.currentApprovers) === JSON.stringify(d.currentApprovers ?? [])) continue;
+      const viewers = [...new Set([...((d.approverUids as string[]) ?? []), ...derived.allApprovers])];
+      await updateDoc(r.ref, { ...next, approverUids: viewers });
+      rerouted++;
+    }
+  }
+  return { id: ref.id, assigned, rerouted };
 }
 
 export async function deleteFlow(s: Session, flow: Flow, people: Person[], allFlows: Flow[]) {

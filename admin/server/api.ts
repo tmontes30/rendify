@@ -7,6 +7,9 @@ import {
   DEFAULT_AREAS,
   DEFAULT_CATEGORIES,
   isSpecialProfile,
+  rerouteToFlow,
+  type Approval,
+  type FlowLevel,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
@@ -374,6 +377,25 @@ async function applyMembers(cid: string, fid: string, members: string[] | undefi
   await batch.commit();
 }
 
+/**
+ * Si el flujo se editó, reacomoda sus rendiciones en aprobación para que esperen a quien
+ * corresponde según el flujo vigente (sin perder las aprobaciones ya dadas en la ronda).
+ */
+async function reroutePending(cid: string, fid: string, flow: { levels: FlowLevel[]; allApprovers: string[] }) {
+  const reports = await company(cid).collection('reports').where('flowId', '==', fid).where('status', '==', 'pending').get();
+  let n = 0;
+  for (const r of reports.docs) {
+    const d = r.data();
+    const next = rerouteToFlow(flow.levels, d.ownerUid as string, (d.approvals ?? []) as Approval[]);
+    const same = next.currentLevel === d.currentLevel && JSON.stringify(next.currentApprovers) === JSON.stringify(d.currentApprovers ?? []);
+    if (same) continue;
+    const viewers = [...new Set([...((d.approverUids as string[]) ?? []), ...flow.allApprovers])];
+    await r.ref.update({ ...next, approverUids: viewers, updatedAt: FieldValue.serverTimestamp() });
+    n++;
+  }
+  return n;
+}
+
 /** Asigna este flujo a sus aprobadores que aún no tienen flujo. Devuelve cuántos. */
 async function assignFlowToApprovers(cid: string, fid: string, approvers: string[]) {
   const snaps = await Promise.all(approvers.map((u) => db.collection('users').doc(u).get()));
@@ -459,13 +481,14 @@ api.put(
     const flow = await buildFlow(req.params.cid, req.body);
     await ref.set(flow);
     await syncReportViewers(req.params.cid, req.params.fid, previous?.payerUid ?? null, flow);
+    const rerouted = await reroutePending(req.params.cid, req.params.fid, flow);
     const members = (req.body as { members?: string[] })?.members;
     await applyMembers(req.params.cid, req.params.fid, members);
     // Si se eligieron los trabajadores explícitamente, se respeta esa elección tal cual.
     const assigned = members ? 0 : await assignFlowToApprovers(req.params.cid, req.params.fid, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
-    res.json({ ok: true, assigned });
+    res.json({ ok: true, assigned, rerouted });
   }),
 );
 
