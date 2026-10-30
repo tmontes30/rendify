@@ -72,8 +72,8 @@ export function AdminFlows() {
             </div>
             <div className="flow-chain">
               <div className="flow-node start">
-                <div className="flow-node-title">Trabajador</div>
-                <div className="small muted">Envía la rendición</div>
+                <div className="flow-node-title">Trabajadores ({usersIn(f.id)})</div>
+                <WorkerNames names={people.filter((p) => p.flowId === f.id).map((p) => p.displayName)} />
               </div>
               {f.levels.map((l, i) => (
                 <div key={i} className="flow-step">
@@ -102,10 +102,11 @@ export function AdminFlows() {
         <FlowEditor
           flow={editing === 'new' ? null : editing}
           people={people.filter((p) => p.active)}
+          flowName={(id) => flows?.find((x) => x.id === id)?.name ?? ''}
           areaName={(id) => areas.find((a) => a.id === id)?.name ?? id}
           onClose={() => setEditing(null)}
-          onSave={async (name, levels, payerUid) => {
-            const r = await saveFlow(session, editing === 'new' ? null : editing.id, name, levels, payerUid, people, flows ?? []);
+          onSave={async (name, levels, payerUid, members) => {
+            const r = await saveFlow(session, editing === 'new' ? null : editing.id, name, levels, payerUid, people, flows ?? [], members);
             setEditing(null);
             setFlash(r.assigned ? `Flujo guardado. Se asignó a ${r.assigned} aprobador(es) que no tenían flujo.` : 'Flujo guardado.');
             await load();
@@ -126,18 +127,20 @@ let seq = 0;
 const newKey = () => `l${++seq}`;
 
 function FlowEditor({
-  flow, people, areaName, onClose, onSave,
+  flow, people, flowName, areaName, onClose, onSave,
 }: {
   flow: Flow | null;
   people: Person[];
+  flowName: (id: string) => string;
   areaName: (id: string) => string;
   onClose: () => void;
-  onSave: (name: string, levels: { name: string; minAmount: number; approvers: string[] }[], payerUid: string | null) => Promise<void>;
+  onSave: (name: string, levels: { name: string; minAmount: number; approvers: string[] }[], payerUid: string | null, members: string[]) => Promise<void>;
 }) {
   const { company } = useSession();
   const base = company.baseCurrency;
   const [name, setName] = useState(flow?.name ?? '');
   const [payerUid, setPayerUid] = useState(flow?.payerUid ?? '');
+  const [members, setMembers] = useState<string[]>(flow ? people.filter((p) => p.flowId === flow.id).map((p) => p.uid) : []);
   // Orden de la cadena (0 = primero en revisar); se muestra al revés (arriba el más importante).
   const [levels, setLevels] = useState<LevelDraft[]>(
     flow?.levels.map((l) => ({ key: newKey(), name: l.name, minText: l.minAmount ? fromMinor(l.minAmount, base) : '', approvers: l.approvers })) ?? [
@@ -176,7 +179,7 @@ function FlowEditor({
     if (!payerUid && !confirm('No elegiste quién paga. ¿Guardar igual?')) return;
     setBusy(true);
     try {
-      await onSave(name, out, payerUid || null);
+      await onSave(name, out, payerUid || null, members);
     } catch (err) {
       setError(adminError(err));
       setBusy(false);
@@ -259,6 +262,14 @@ function FlowEditor({
             + Agregar nivel debajo (revisa antes)
           </button>
         )}
+        <div className="level-link" aria-hidden="true">↑ envían su rendición a este flujo</div>
+        <div className="card level-card workers-card">
+          <div className="row tight">
+            <strong>👥 Trabajadores de este flujo</strong>
+            <span className="muted small">Quienes rinden gastos por este flujo. Cada persona usa un solo flujo.</span>
+          </div>
+          <MemberPicker people={approverPool} currentFlowId={flow?.id ?? null} flowName={flowName} areaName={areaName} selected={members} onChange={setMembers} />
+        </div>
         {error && <div className="alert error" style={{ marginTop: 12 }}>{error}</div>}
         <div className="row modal-actions">
           <button type="submit" className="primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar flujo'}</button>
@@ -285,6 +296,63 @@ function Picker({ people, areaName, selected, onChange }: { people: Person[]; ar
             </span>
           </label>
         ))}
+        {shown.length === 0 && <div className="muted small">Sin resultados.</div>}
+      </div>
+    </div>
+  );
+}
+
+function WorkerNames({ names }: { names: string[] }) {
+  if (!names.length) return <div className="small text-bad">Nadie asignado</div>;
+  return (
+    <div className="small">
+      {names.slice(0, 4).map((n) => (
+        <div key={n}>👤 {n}</div>
+      ))}
+      {names.length > 4 && <div className="muted">+ {names.length - 4} más</div>}
+    </div>
+  );
+}
+
+function MemberPicker({
+  people, currentFlowId, flowName, areaName, selected, onChange,
+}: {
+  people: Person[];
+  currentFlowId: string | null;
+  flowName: (id: string) => string;
+  areaName: (id: string) => string;
+  selected: string[];
+  onChange: (uids: string[]) => void;
+}) {
+  const [q, setQ] = useState('');
+  const shown = people.filter((p) => `${p.displayName} ${p.email} ${areaName(p.areaId)}`.toLowerCase().includes(q.toLowerCase()));
+  const allShown = shown.length > 0 && shown.every((p) => selected.includes(p.uid));
+  return (
+    <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+      <div className="row spread">
+        <label>Seleccionados ({selected.length})</label>
+        <button
+          type="button"
+          className="link"
+          onClick={() => onChange(allShown ? selected.filter((x) => !shown.some((p) => p.uid === x)) : [...new Set([...selected, ...shown.map((p) => p.uid)])])}
+        >
+          {allShown ? 'Quitar los mostrados' : 'Seleccionar los mostrados'}
+        </button>
+      </div>
+      <input placeholder="Buscar persona o área…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="picker">
+        {shown.map((p) => {
+          const other = p.flowId && p.flowId !== currentFlowId ? flowName(p.flowId) : '';
+          return (
+            <label key={p.uid} className="check">
+              <input type="checkbox" checked={selected.includes(p.uid)} onChange={(e) => onChange(e.target.checked ? [...selected, p.uid] : selected.filter((x) => x !== p.uid))} />
+              <span>
+                {p.displayName} <span className="muted small">· {areaName(p.areaId)}</span>
+                {other && <span className="badge pending" style={{ marginLeft: 6 }}>hoy en: {other}</span>}
+              </span>
+            </label>
+          );
+        })}
         {shown.length === 0 && <div className="muted small">Sin resultados.</div>}
       </div>
     </div>

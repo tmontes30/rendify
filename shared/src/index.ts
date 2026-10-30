@@ -380,6 +380,8 @@ export const namedEntitySchema = z.object({
 export const flowSchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.name),
   payerUid: id.nullable().default(null),
+  /** Trabajadores que usan este flujo (si se envía, reemplaza la asignación actual). */
+  members: z.array(id).max(1000).optional(),
   levels: z
     .array(
       z.object({

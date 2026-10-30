@@ -323,6 +323,23 @@ async function buildFlow(cid: string, raw: unknown) {
   };
 }
 
+/**
+ * Deja exactamente a `members` usando este flujo: los elegidos pasan a este flujo (aunque
+ * estuvieran en otro) y quienes lo tenían y ya no están elegidos quedan sin flujo.
+ */
+async function applyMembers(cid: string, fid: string, members: string[] | undefined) {
+  if (!members) return;
+  const want = new Set(members);
+  const users = await db.collection('users').where('companyId', '==', cid).get();
+  const batch = db.batch();
+  for (const u of users.docs) {
+    const d = u.data();
+    if (want.has(u.id) && d.flowId !== fid && !d.paymentsUser) batch.update(u.ref, { flowId: fid });
+    else if (!want.has(u.id) && d.flowId === fid) batch.update(u.ref, { flowId: null });
+  }
+  await batch.commit();
+}
+
 /** Asigna este flujo a sus aprobadores que aún no tienen flujo. Devuelve cuántos. */
 async function assignFlowToApprovers(cid: string, fid: string, approvers: string[]) {
   const snaps = await Promise.all(approvers.map((u) => db.collection('users').doc(u).get()));
@@ -389,6 +406,7 @@ api.post(
     const col = company(req.params.cid).collection('flows');
     const id = await uniqueId(col, flow.name);
     await col.doc(id).set(flow);
+    await applyMembers(req.params.cid, id, (req.body as { members?: string[] })?.members);
     const assigned = await assignFlowToApprovers(req.params.cid, id, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
@@ -405,6 +423,7 @@ api.put(
     const flow = await buildFlow(req.params.cid, req.body);
     await ref.set(flow);
     await syncReportViewers(req.params.cid, req.params.fid, previous?.payerUid ?? null, flow);
+    await applyMembers(req.params.cid, req.params.fid, (req.body as { members?: string[] })?.members);
     const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();

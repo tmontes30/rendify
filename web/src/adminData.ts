@@ -76,6 +76,7 @@ export async function saveFlow(
   payerUid: string | null,
   people: Person[],
   allFlows: Flow[],
+  members?: string[],
 ) {
   const cid = s.company.id;
   const names = Object.fromEntries(people.map((p) => [p.uid, p.displayName]));
@@ -90,8 +91,16 @@ export async function saveFlow(
   const flowsAfter = [...allFlows.filter((f) => f.id !== ref.id), { ...derived, id: ref.id, name } as Flow];
   const approversAll = new Set(flowsAfter.flatMap((f) => f.levels.flatMap((l) => l.approvers)));
   let assigned = 0;
+  const want = members ? new Set(members) : null;
   for (const p of people) {
-    const flowIdNew = !p.flowId && !p.paymentsUser && levelApprovers.has(p.uid) ? ref.id : p.flowId ?? null;
+    // Trabajadores elegidos para este flujo; quienes lo tenían y ya no están, quedan sin flujo.
+    let flowIdNew = p.flowId ?? null;
+    if (want && !p.paymentsUser) {
+      if (want.has(p.uid)) flowIdNew = ref.id;
+      else if (flowIdNew === ref.id) flowIdNew = null;
+    }
+    // Aprobadores sin flujo quedan en este (para sus propias rendiciones).
+    if (!flowIdNew && !p.paymentsUser && levelApprovers.has(p.uid)) flowIdNew = ref.id;
     const isApprover = approversAll.has(p.uid);
     if (flowIdNew !== (p.flowId ?? null) || isApprover !== !!p.isApprover || p.paymentsUser === undefined) {
       if (flowIdNew !== (p.flowId ?? null)) assigned++;

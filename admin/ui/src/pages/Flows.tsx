@@ -80,8 +80,8 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
             </div>
             <div className="flow-chain">
               <div className="flow-node start">
-                <div className="flow-node-title">Trabajador</div>
-                <div className="small muted">Envía la rendición</div>
+                <div className="flow-node-title">Trabajadores ({usersIn(f.id)})</div>
+                <WorkerNames names={(users.data ?? []).filter((u) => u.flowId === f.id).map((u) => u.displayName)} />
               </div>
               {f.levels.map((l, i) => (
                 <div key={i} className="flow-step">
@@ -119,6 +119,7 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
           base={base}
           flow={editing === 'new' ? null : editing}
           users={users.data.filter((u) => u.active)}
+          flowName={(id) => flows.data?.find((x) => x.id === id)?.name ?? ''}
           areaName={areaName}
           onClose={() => setEditing(null)}
           onSaved={(assigned) => {
@@ -148,12 +149,13 @@ interface LevelDraft {
 }
 
 function FlowModal({
-  cid, base, flow, users, areaName, onClose, onSaved,
+  cid, base, flow, users, flowName, areaName, onClose, onSaved,
 }: {
   cid: string;
   base: Currency;
   flow: Flow | null;
   users: UserLite[];
+  flowName: (id: string) => string;
   areaName: (id: string) => string;
   onClose: () => void;
   onSaved: (assigned: number) => void;
@@ -167,6 +169,7 @@ function FlowModal({
     ],
   );
   const [payerUid, setPayerUid] = useState<string>(flow?.payerUid ?? '');
+  const [members, setMembers] = useState<string[]>(flow ? users.filter((u) => u.flowId === flow.id).map((u) => u.uid) : []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -199,7 +202,7 @@ function FlowModal({
     if (!payerUid && !confirm('No elegiste quién paga. No podrás avisarle cuando una rendición quede aprobada. ¿Guardar igual?')) return;
     setBusy(true);
     try {
-      const body = { name, levels: out, payerUid: payerUid || null };
+      const body = { name, levels: out, payerUid: payerUid || null, members };
       const r = flow
         ? await api.put<{ assigned: number }>(`/companies/${cid}/flows/${flow.id}`, body)
         : await api.post<{ assigned: number }>(`/companies/${cid}/flows`, body);
@@ -291,6 +294,21 @@ function FlowModal({
             + Agregar nivel debajo (revisa antes)
           </button>
         )}
+        <div className="level-link" aria-hidden="true">↑ envían su rendición a este flujo</div>
+        <div className="card level-card workers-card">
+          <div className="row tight">
+            <strong>👥 Trabajadores de este flujo</strong>
+            <span className="muted small">Quienes rinden gastos por este flujo. Cada persona usa un solo flujo.</span>
+          </div>
+          <MemberPicker
+            users={users.filter((u) => !u.paymentsUser)}
+            currentFlowId={flow?.id ?? null}
+            flowName={flowName}
+            areaName={areaName}
+            selected={members}
+            onChange={setMembers}
+          />
+        </div>
         {error && <div className="alert error" style={{ marginTop: 12 }}>{error}</div>}
         <div className="row modal-actions">
           <button type="submit" className="primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar flujo'}</button>
@@ -328,6 +346,67 @@ function ApproverPicker({
             </span>
           </label>
         ))}
+        {shown.length === 0 && <div className="muted small">Sin resultados.</div>}
+      </div>
+    </div>
+  );
+}
+
+function WorkerNames({ names }: { names: string[] }) {
+  if (!names.length) return <div className="small text-bad">Nadie asignado</div>;
+  return (
+    <div className="small">
+      {names.slice(0, 4).map((n) => (
+        <div key={n}>👤 {n}</div>
+      ))}
+      {names.length > 4 && <div className="muted">+ {names.length - 4} más</div>}
+    </div>
+  );
+}
+
+function MemberPicker({
+  users, currentFlowId, flowName, areaName, selected, onChange,
+}: {
+  users: UserLite[];
+  currentFlowId: string | null;
+  flowName: (id: string) => string;
+  areaName: (id: string) => string;
+  selected: string[];
+  onChange: (uids: string[]) => void;
+}) {
+  const [q, setQ] = useState('');
+  const shown = users.filter((u) => `${u.displayName} ${u.email} ${areaName(u.areaId)}`.toLowerCase().includes(q.toLowerCase()));
+  const allShown = shown.length > 0 && shown.every((u) => selected.includes(u.uid));
+  return (
+    <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+      <div className="row spread">
+        <label>Seleccionados ({selected.length})</label>
+        <button
+          type="button"
+          className="link"
+          onClick={() => onChange(allShown ? selected.filter((x) => !shown.some((u) => u.uid === x)) : [...new Set([...selected, ...shown.map((u) => u.uid)])])}
+        >
+          {allShown ? 'Quitar los mostrados' : 'Seleccionar los mostrados'}
+        </button>
+      </div>
+      <input placeholder="Buscar persona o área…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="picker">
+        {shown.map((u) => {
+          const other = u.flowId && u.flowId !== currentFlowId ? flowName(u.flowId) : '';
+          return (
+            <label key={u.uid} className="check">
+              <input
+                type="checkbox"
+                checked={selected.includes(u.uid)}
+                onChange={(e) => onChange(e.target.checked ? [...selected, u.uid] : selected.filter((x) => x !== u.uid))}
+              />
+              <span>
+                {u.displayName} <span className="muted small">· {areaName(u.areaId)}</span>
+                {other && <span className="badge pending" style={{ marginLeft: 6 }}>hoy en: {other}</span>}
+              </span>
+            </label>
+          );
+        })}
         {shown.length === 0 && <div className="muted small">Sin resultados.</div>}
       </div>
     </div>

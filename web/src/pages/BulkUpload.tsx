@@ -251,7 +251,7 @@ export function BulkUpload() {
 
   return (
     <div className="stack">
-      <Link to="/" className="back-link">← Mis rendiciones</Link>
+      <Link to="/mis-rendiciones" className="back-link">← Mis rendiciones</Link>
       <div className="page-header">
         <div>
           <h1>Carga masiva</h1>

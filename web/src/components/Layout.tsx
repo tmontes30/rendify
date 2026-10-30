@@ -33,7 +33,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link to={profile.companyAdmin ? '/personas' : profile.paymentsUser ? '/pagos' : '/'} className="sidebar-brand" title="Ir al inicio">
+        <Link to={profile.companyAdmin ? '/personas' : profile.paymentsUser ? '/pagos' : profile.isApprover ? '/aprobar' : '/mis-rendiciones'} className="sidebar-brand" title="Ir al inicio">
           <Logo />
           <div>
             <div className="brand-name">Rendiciones</div>
@@ -41,6 +41,13 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         </Link>
         <nav className="side-nav">
+          {profile.isApprover && (
+            <NavLink to="/aprobar">
+              <span className="nav-icon" aria-hidden="true">✓</span>
+              <span>Por aprobar</span>
+              {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
+            </NavLink>
+          )}
           {profile.companyAdmin && (
             <>
               <NavLink to="/personas">
@@ -55,7 +62,7 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
           {!profile.paymentsUser && !profile.companyAdmin && (
             <>
-              <NavLink to="/" end>
+              <NavLink to="/mis-rendiciones">
                 <span className="nav-icon" aria-hidden="true">☰</span>
                 <span>Mis rendiciones</span>
               </NavLink>
@@ -76,13 +83,7 @@ export function Layout({ children }: { children: ReactNode }) {
               {toPayCount > 0 && <span className="nav-count">{toPayCount}</span>}
             </NavLink>
           )}
-          {profile.isApprover && (
-            <NavLink to="/aprobar">
-              <span className="nav-icon" aria-hidden="true">✓</span>
-              <span>Por aprobar</span>
-              {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
-            </NavLink>
-          )}
+
         </nav>
         <div className="sidebar-user">
           <NavLink to="/perfil" className="user-link" title="Mi perfil">

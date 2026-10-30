@@ -179,7 +179,7 @@ export function ReportEditor({
     setBusy(true);
     try {
       await deleteDraft(company.id, existing.report.id, existing.items);
-      navigate('/', { replace: true });
+      navigate('/mis-rendiciones', { replace: true });
     } catch (e) {
       setError(friendlyError(e));
       setBusy(false);
@@ -195,7 +195,7 @@ export function ReportEditor({
 
   return (
     <div className="stack editor">
-      <Link to="/" className="back-link">← Mis rendiciones</Link>
+      <Link to="/mis-rendiciones" className="back-link">← Mis rendiciones</Link>
 
       {rejection && (
         <div className="alert error">

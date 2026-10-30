@@ -41,13 +41,15 @@ function Routed() {
           </>
         ) : (
           <>
-            <Route path="/" element={<MyReports />} />
+            {/* Aprobadores: el inicio es "Por aprobar"; sus rendiciones quedan en /mis-rendiciones. */}
+            <Route path="/" element={<Navigate to={state.profile.isApprover ? '/aprobar' : '/mis-rendiciones'} replace />} />
+            <Route path="/mis-rendiciones" element={<MyReports />} />
             <Route path="/nueva" element={<NewReport />} />
             <Route path="/carga-masiva" element={<BulkUpload />} />
             <Route path="/perfil" element={<Profile />} />
             <Route path="/r/:id" element={<ReportPage />} />
             {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to={state.profile.isApprover ? '/aprobar' : '/mis-rendiciones'} replace />} />
           </>
         )}
       </Routes>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { resubmissionInfo, type Report } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listApproverHistory, listPendingForMe } from '../data';
@@ -31,6 +31,10 @@ export function Approvals() {
         <div>
           <h1>Por aprobar</h1>
           <p className="muted page-sub">Rendiciones que esperan tu revisión. Ábrelas para ver el detalle y decidir.</p>
+        </div>
+        <div className="row">
+          <Link to="/mis-rendiciones" className="btn">Mis rendiciones</Link>
+          <Link to="/nueva" className="btn primary">+ Nueva rendición</Link>
         </div>
       </div>
       {flash === 'approved' && <div className="alert ok">✓ Rendición aprobada.</div>}

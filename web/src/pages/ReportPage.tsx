@@ -55,7 +55,7 @@ export function ReportPage() {
     void load();
   }, [load]);
 
-  if (notFound) return <div className="card empty">Rendición no encontrada. <Link to="/">Volver</Link></div>;
+  if (notFound) return <div className="card empty">Rendición no encontrada. <Link to="/mis-rendiciones">Volver</Link></div>;
   if (error && !data) return <div className="alert error">{error}</div>;
   if (!data) return <p className="muted">Cargando…</p>;
 
@@ -73,7 +73,7 @@ export function ReportPage() {
 
   return (
     <div className="stack">
-      <Link to={isOwner ? '/' : isPayerHere && ['approved', 'paid'].includes(report.status) ? '/pagos' : '/aprobar'} className="back-link">
+      <Link to={isOwner ? '/mis-rendiciones' : isPayerHere && ['approved', 'paid'].includes(report.status) ? '/pagos' : '/aprobar'} className="back-link">
         ← Volver
       </Link>
 

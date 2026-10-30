@@ -567,3 +567,5 @@ button.good:hover { background: var(--good-soft); }
 .lightbox-inner img { max-width: 100%; max-height: calc(100vh - 110px); object-fit: contain; border-radius: 10px; background: #fff; }
 .lightbox-bar { color: #fff; }
 .lightbox-bar .muted { color: #b6bdc7; }
+
+.workers-card { border: 1px dashed var(--accent); background: var(--accent-soft); }
