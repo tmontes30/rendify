@@ -1640,7 +1640,7 @@ api.get(
       .sort((a, b) => b.reports + b.decisions + b.paid - (a.reports + a.decisions + a.paid));
 
     const approverSpeed = [...perApprover.entries()]
-      .map(([uid, hs]) => ({ uid, name: nameOf(uid), decisions: hs.length, avgHours: avg(hs)! }))
+      .map(([uid, hs]) => ({ uid, name: nameOf(uid), company: companyName.get(users.find((u) => u.uid === uid)?.companyId) ?? '', decisions: hs.length, avgHours: avg(hs)!, maxHours: Math.max(...hs) }))
       .sort((a, b) => b.avgHours - a.avgHours);
 
     res.json({

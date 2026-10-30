@@ -50,7 +50,7 @@ interface InsightsData {
     paid: number;
     lastSignIn: string | null;
   }[];
-  approverSpeed: { uid: string; name: string; decisions: number; avgHours: number }[];
+  approverSpeed: { uid: string; name: string; company: string; decisions: number; avgHours: number; maxHours: number }[];
 }
 
 const SEV = {
@@ -101,11 +101,7 @@ export function Insights() {
         <WeeklyChart weeks={data.weeks} />
       </div>
 
-      <div className="grid grid-2">
-        {!companyId && <CompanyUsage rows={data.byCompany} />}
-        <UserUsage rows={data.byUser} />
-        <ApproverSpeed rows={data.approverSpeed} />
-      </div>
+      <UsageTabs data={data} showCompanies={!companyId} />
     </div>
   );
 }
@@ -238,118 +234,168 @@ function Bar({ value, max }: { value: number; max: number }) {
   );
 }
 
-function CompanyUsage({ rows }: { rows: InsightsData['byCompany'] }) {
-  const max = Math.max(1, ...rows.map((r) => r.reports30));
+type UsageTab = 'companies' | 'people' | 'approvers';
+
+/** Uso de la plataforma a todo el ancho, en pestañas (empresas, personas, aprobadores). */
+function UsageTabs({ data, showCompanies }: { data: InsightsData; showCompanies: boolean }) {
+  const [tab, setTab] = useState<UsageTab>(showCompanies ? 'companies' : 'people');
+  const current = !showCompanies && tab === 'companies' ? 'people' : tab;
   return (
     <div className="card">
-      <h3>Uso por empresa <span className="muted small">(últimos 30 días)</span></h3>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Empresa</th>
-              <th>Activos</th>
-              <th>Rendiciones</th>
-              <th className="num">Pend. / Por pagar</th>
-              <th className="hide-sm">Último uso</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.companyId}>
-                <td>
-                  <span className="strong">{r.name}</span> {!r.active && <span className="badge rejected">⏸</span>}
-                </td>
-                <td className="small">
-                  {r.active30}/{r.users} <span className="muted">({pct(r.active30, r.users)})</span>
-                </td>
-                <td style={{ minWidth: 130 }}>
-                  <div className="row nowrap tight">
-                    <Bar value={r.reports30} max={max} />
-                    <span className="small strong">{r.reports30}</span>
-                  </div>
-                </td>
-                <td className="num small">
-                  {r.pending} / {r.toPay}
-                </td>
-                <td className="hide-sm small muted">{ago(r.lastUse)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="row spread">
+        <h2 style={{ margin: 0 }}>Uso de la plataforma</h2>
       </div>
+      <nav className="tabs" style={{ marginTop: 10 }}>
+        {showCompanies && (
+          <button className={current === 'companies' ? 'active' : ''} onClick={() => setTab('companies')}>
+            Por empresa <span className="count-pill">{data.byCompany.length}</span>
+          </button>
+        )}
+        <button className={current === 'people' ? 'active' : ''} onClick={() => setTab('people')}>
+          Por persona <span className="count-pill">{data.byUser.length}</span>
+        </button>
+        <button className={current === 'approvers' ? 'active' : ''} onClick={() => setTab('approvers')}>
+          Aprobadores <span className="count-pill">{data.approverSpeed.length}</span>
+        </button>
+      </nav>
+      {current === 'companies' && <CompanyUsage rows={data.byCompany} />}
+      {current === 'people' && <UserUsage rows={data.byUser} />}
+      {current === 'approvers' && <ApproverSpeed rows={data.approverSpeed} />}
     </div>
   );
 }
 
-function UserUsage({ rows }: { rows: InsightsData['byUser'] }) {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? rows : rows.slice(0, 10);
-  const max = Math.max(1, ...rows.map((r) => r.reports + r.decisions + r.paid));
+function Metric({ label, value, sub, tone }: { label: string; value: string | number; sub?: string; tone?: 'bad' | 'warn' }) {
   return (
-    <div className="card">
-      <h3>Uso por persona</h3>
+    <div className="metric">
+      <div className="metric-label">{label}</div>
+      <div className={`metric-value${tone ? ` text-${tone}` : ''}`}>{value}</div>
+      {sub && <div className="metric-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function CompanyUsage({ rows }: { rows: InsightsData['byCompany'] }) {
+  const max = Math.max(1, ...rows.map((r) => r.reports30));
+  const sorted = [...rows].sort((a, b) => b.reports30 - a.reports30 || a.name.localeCompare(b.name));
+  if (!rows.length) return <p className="muted small">Sin empresas.</p>;
+  return (
+    <div className="usage-list">
+      {sorted.map((r) => {
+        const adoption = r.users ? Math.round((r.active30 / r.users) * 100) : 0;
+        return (
+          <div key={r.companyId} className="usage-row">
+            <div className="usage-name">
+              <div className="strong">{r.name}</div>
+              <div className="muted small">{r.active ? `Último uso: ${ago(r.lastUse)}` : '⏸ Servicio suspendido'}</div>
+              <div className="usage-bar" title={`${r.reports30} rendiciones en 30 días`}>
+                <div className="bar-track"><div className="bar-fill" style={{ width: `${(r.reports30 / max) * 100}%` }} /></div>
+              </div>
+            </div>
+            <Metric label="Personas activas" value={`${r.active30}/${r.users}`} sub={`${adoption}% entró en 30 días`} tone={adoption < 50 ? 'warn' : undefined} />
+            <Metric label="Rendiciones (30 días)" value={r.reports30} sub={`${r.reportsTotal} en total`} />
+            <Metric label="En aprobación" value={r.pending} />
+            <Metric label="Por pagar" value={r.toPay} tone={r.toPay ? 'warn' : undefined} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type PersonSort = 'name' | 'company' | 'reports' | 'decisions' | 'paid' | 'lastSignIn';
+
+function UserUsage({ rows }: { rows: InsightsData['byUser'] }) {
+  const [q, setQ] = useState('');
+  const [role, setRole] = useState('');
+  const [sort, setSort] = useState<{ key: PersonSort; dir: 1 | -1 }>({ key: 'lastSignIn', dir: -1 });
+  const roles = [...new Set(rows.map((r) => r.role))];
+  const val = (r: InsightsData['byUser'][number], k: PersonSort): string | number =>
+    k === 'lastSignIn' ? (r.lastSignIn ? Date.parse(r.lastSignIn) : 0) : k === 'name' || k === 'company' ? r[k].toLowerCase() : r[k];
+  const shown = rows
+    .filter((r) => (!role || r.role === role) && `${r.name} ${r.company}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => {
+      const x = val(a, sort.key);
+      const y = val(b, sort.key);
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+    });
+  const head = (k: PersonSort, label: string, num?: boolean) => (
+    <th className={num ? 'num' : ''}>
+      <button className="sort-btn" onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? ((-s.dir) as 1 | -1) : k === 'name' || k === 'company' ? 1 : -1 }))}>
+        {label} {sort.key === k ? (sort.dir === 1 ? '▲' : '▼') : ''}
+      </button>
+    </th>
+  );
+  return (
+    <div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <input className="search" placeholder="Buscar persona o empresa…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 'auto' }} aria-label="Filtrar por rol">
+          <option value="">Todos los roles</option>
+          {roles.map((r) => <option key={r}>{r}</option>)}
+        </select>
+        <span className="muted small">{shown.length} persona(s)</span>
+      </div>
       <div className="table-wrap">
-        <table>
+        <table className="usage-table">
           <thead>
             <tr>
-              <th>Persona</th>
-              <th>Actividad</th>
-              <th className="num">Rend. · Decisiones · Pagos</th>
-              <th className="hide-sm">Último ingreso</th>
+              {head('name', 'Persona')}
+              {head('company', 'Empresa')}
+              <th>Rol</th>
+              {head('reports', 'Rendiciones', true)}
+              {head('decisions', 'Decisiones', true)}
+              {head('paid', 'Pagos', true)}
+              {head('lastSignIn', 'Último ingreso')}
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r.uid}>
-                <td>
-                  <div className="strong small">{r.name}</div>
-                  <div className="muted small">{r.company} · {r.role}</div>
-                </td>
-                <td style={{ minWidth: 100 }}>
-                  <Bar value={r.reports + r.decisions + r.paid} max={max} />
-                </td>
-                <td className="num small">
-                  {r.reports} · {r.decisions} · {r.paid}
-                </td>
-                <td className={`hide-sm small ${r.lastSignIn ? 'muted' : 'text-bad'}`}>{ago(r.lastSignIn)}</td>
+                <td className="strong">{r.name}</td>
+                <td>{r.company}</td>
+                <td><span className={`badge ${r.role === 'Aprobador' ? 'info' : r.role === 'Pagos' ? 'approved' : ''}`}>{r.role}</span></td>
+                <td className="num">{r.reports}{r.reports30 ? <span className="muted small"> ({r.reports30} este mes)</span> : null}</td>
+                <td className="num">{r.decisions || <span className="muted">—</span>}</td>
+                <td className="num">{r.paid || <span className="muted">—</span>}</td>
+                <td className={r.lastSignIn ? '' : 'text-bad strong'}>{ago(r.lastSignIn)}</td>
               </tr>
             ))}
+            {!shown.length && (
+              <tr>
+                <td colSpan={7} className="muted">Sin resultados.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
-      {rows.length > 10 && (
-        <button className="link" onClick={() => setShowAll(!showAll)}>{showAll ? 'Ver menos' : `Ver las ${rows.length} personas`}</button>
-      )}
     </div>
   );
 }
 
 function ApproverSpeed({ rows }: { rows: InsightsData['approverSpeed'] }) {
+  if (!rows.length) return <p className="muted small">Aún no hay decisiones registradas.</p>;
   const max = Math.max(1, ...rows.map((r) => r.avgHours));
   return (
-    <div className="card">
-      <h3>Velocidad de aprobadores <span className="muted small">(tiempo promedio en decidir)</span></h3>
-      {rows.length === 0 ? (
-        <p className="muted small">Aún no hay decisiones registradas.</p>
-      ) : (
-        <table>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.uid}>
-                <td className="small">
-                  <span className="strong">{r.name}</span>
-                  <div className="muted">{r.decisions} decisión(es)</div>
-                </td>
-                <td style={{ width: '45%' }}>
-                  <Bar value={r.avgHours} max={max} />
-                </td>
-                <td className={`num small strong ${r.avgHours > 24 ? 'text-bad' : ''}`}>{hours(r.avgHours)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <div>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Tiempo promedio desde que una rendición llega a su nivel hasta que la aprueban o rechazan. Los más lentos primero; en rojo si pasan de 24 h.
+      </p>
+      <div className="usage-list">
+        {rows.map((r) => (
+          <div key={r.uid} className="speed-row">
+            <div>
+              <div className="strong">{r.name}</div>
+              <div className="muted small">{r.company} · {r.decisions} decisión(es)</div>
+            </div>
+            <div className="bar-track speed-track" title={`Promedio ${hours(r.avgHours)}`}>
+              <div className={`bar-fill${r.avgHours > 24 ? ' bar-bad' : ''}`} style={{ width: `${Math.max(2, (r.avgHours / max) * 100)}%` }} />
+            </div>
+            <Metric label="Promedio" value={hours(r.avgHours)} tone={r.avgHours > 24 ? 'bad' : undefined} />
+            <Metric label="Más lento" value={hours(r.maxHours)} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
