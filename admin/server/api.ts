@@ -698,12 +698,16 @@ api.post(
 
 // ---------- Rendiciones ----------
 async function loadReports(cid: string | undefined, filter: z.infer<typeof reportFilterSchema>): Promise<ReportOut[]> {
+  // Por empresa se filtra en la consulta; para todas las empresas (collectionGroup) se filtra
+  // aquí, porque esa consulta con filtros requeriría índices especiales de grupo.
   let q: FirebaseFirestore.Query = cid ? company(cid).collection('reports') : db.collectionGroup('reports');
-  if (filter.status) q = q.where('status', '==', filter.status);
-  if (filter.areaId) q = q.where('areaId', '==', filter.areaId);
+  if (cid && filter.status) q = q.where('status', '==', filter.status);
+  if (cid && filter.areaId) q = q.where('areaId', '==', filter.areaId);
   const snap = await q.get();
   return snap.docs
     .map((d) => serializeReport(d.id, d.ref.parent.parent!.id, d.data()))
+    .filter((r) => !filter.status || r.status === filter.status)
+    .filter((r) => !filter.areaId || r.areaId === filter.areaId)
     .filter((r) => (!filter.from || r.periodTo >= filter.from) && (!filter.to || r.periodFrom <= filter.to))
     .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
 }

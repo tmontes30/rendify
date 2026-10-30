@@ -21,7 +21,9 @@ export function useLoad<T>(path: string | null) {
       setLoading(false);
     }
   }, [path]);
+  // Al cambiar de filtro/sección se limpia lo anterior, para no mostrar datos viejos junto a un error.
   useEffect(() => {
+    setData(null);
     void reload();
   }, [reload]);
   // Al volver a esta pestaña del navegador, traer los datos más recientes.
