@@ -54,10 +54,10 @@ export function Payments() {
       {error && <div className="alert error">{error}</div>}
 
       <div className="grid grid-tiles">
-        <Tile label="Por pagar" value={topay.length} tone="info" />
-        <Tile label="Monto por pagar" value={formatTotals(addTotals(topay))} tone="bad" />
-        <Tile label="Pagadas este mes" value={paidThisMonth.length} tone="good" />
-        <Tile label="Monto pagado este mes" value={formatTotals(addTotals(paidThisMonth))} />
+        <Tile label="Por pagar" value={topay.length} tone="info" active={tab === 'topay'} onClick={() => setTab('topay')} />
+        <Tile label="Monto por pagar" value={formatTotals(addTotals(topay))} tone="bad" active={tab === 'topay'} onClick={() => setTab('topay')} />
+        <Tile label="Pagadas este mes" value={paidThisMonth.length} tone="good" active={tab === 'paid'} onClick={() => setTab('paid')} />
+        <Tile label="Monto pagado este mes" value={formatTotals(addTotals(paidThisMonth))} active={tab === 'paid'} onClick={() => setTab('paid')} />
       </div>
 
       <div className="card">

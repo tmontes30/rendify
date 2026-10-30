@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { STATUS_LABELS, formatTotals, type Report, type Status } from '@rendiciones/shared';
 import { useSession } from '../auth';
@@ -21,6 +21,12 @@ export function MyReports() {
   const [reports, setReports] = useState<Report[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Status | ''>('');
+  const listRef = useRef<HTMLDivElement>(null);
+  // Tocar una tarjeta filtra la lista (y vuelve a "Todas" si ya estaba elegida).
+  const pick = (s: Status) => {
+    setFilter((f) => (f === s ? '' : s));
+    setTimeout(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
 
   useEffect(() => {
     listMyReports(company.id, profile.uid).then(setReports, (e) => setError(friendlyError(e)));
@@ -44,15 +50,15 @@ export function MyReports() {
       </div>
 
       <div className="grid grid-tiles">
-        <Tile label="En aprobación" value={count('pending')} tone="info" />
-        <Tile label="Rechazadas (por corregir)" value={count('rejected')} tone="bad" />
-        <Tile label="Aprobadas por pagar" value={count('approved')} tone="good" />
-        <Tile label="Borradores" value={count('draft')} />
+        <Tile label="En aprobación" value={count('pending')} tone="info" active={filter === 'pending'} onClick={() => pick('pending')} />
+        <Tile label="Rechazadas (por corregir)" value={count('rejected')} tone="bad" active={filter === 'rejected'} onClick={() => pick('rejected')} />
+        <Tile label="Aprobadas por pagar" value={count('approved')} tone="good" active={filter === 'approved'} onClick={() => pick('approved')} />
+        <Tile label="Borradores" value={count('draft')} active={filter === 'draft'} onClick={() => pick('draft')} />
       </div>
 
       {error && <div className="alert error">{error}</div>}
 
-      <div className="card">
+      <div className="card" ref={listRef}>
         <nav className="tabs">
           {FILTERS.map((f) => (
             <button key={f.key || 'all'} className={filter === f.key ? 'active' : ''} onClick={() => setFilter(f.key)}>
@@ -86,7 +92,24 @@ export function MyReports() {
   );
 }
 
-export function Tile({ label, value, tone }: { label: string; value: number | string; tone?: 'info' | 'good' | 'bad' }) {
+export function Tile({
+  label, value, tone, onClick, active,
+}: {
+  label: string;
+  value: number | string;
+  tone?: 'info' | 'good' | 'bad';
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  if (onClick) {
+    return (
+      <button type="button" className={`card tile tile-btn${tone ? ` tone-${tone}` : ''}${active ? ' active' : ''}`} onClick={onClick} aria-pressed={active}>
+        <div className="label">{label}</div>
+        <div className="value">{value}</div>
+        <div className="tile-hint">{active ? 'Mostrando · tocar para ver todas' : 'Ver'} →</div>
+      </button>
+    );
+  }
   return (
     <div className={`card tile${tone ? ` tone-${tone}` : ''}`}>
       <div className="label">{label}</div>
