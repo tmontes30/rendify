@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { args, config } from './firebase.js';
-import { api } from './api.js';
+import { api, cleanupExpiredPhotos } from './api.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const uiDist = resolve(here, '../ui/dist');
@@ -91,6 +91,10 @@ app.listen(PORT, HOST, () => {
   console.log(' No compartas este enlace. Cierra con Ctrl+C.');
   console.log('==============================================\n');
   if (!args.has('--no-open')) openBrowser(url);
+  // Retención de fotos: limpiar al iniciar y cada hora mientras el panel está abierto.
+  const runCleanup = () => cleanupExpiredPhotos().catch((e) => console.error('[fotos] Error en la limpieza:', e));
+  void runCleanup();
+  setInterval(runCleanup, 60 * 60 * 1000);
 });
 
 function openBrowser(url: string) {

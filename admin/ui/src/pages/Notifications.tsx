@@ -4,7 +4,7 @@ import { PageHeader } from '../components';
 import { useCompany, useLoad } from '../hooks';
 import { api, qs } from '../api';
 import { billingLabel, type Billing } from './Companies';
-import { formatMoney } from '@rendiciones/shared';
+import { formatMoney, PHOTO_DAYS_AFTER_PAID, PHOTO_WARN_DAYS } from '@rendiciones/shared';
 import { NotifyModal } from './Reports';
 import { LogoLoader } from '@rendiciones/shared/Busy';
 
@@ -23,6 +23,7 @@ interface NoticeItem {
 }
 
 type BillNotice = Billing & { companyId: string; companyName: string; active: boolean };
+type PhotoNotice = NoticeItem & { deleteOn: string; photos: number };
 
 interface Notices {
   payer: NoticeItem[];
@@ -42,10 +43,12 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
   const { data, error, loading, reload } = useLoad<Notices>(`/notifications${qs({ companyId: companyId || undefined })}`);
   const [open, setOpen] = useState<{ item: NoticeItem; kind: 'payer' | 'approver' | 'paid' } | null>(null);
   const bills = useLoad<BillNotice[]>(`/notifications/billing${qs({ companyId: companyId || undefined })}`);
+  const photos = useLoad<PhotoNotice[]>(`/notifications/photos${qs({ companyId: companyId || undefined })}`);
+  const [photoOpen, setPhotoOpen] = useState<PhotoNotice | null>(null);
   const [billOpen, setBillOpen] = useState<BillNotice | null>(null);
 
   const refresh = async () => {
-    await Promise.all([reload(), bills.reload()]);
+    await Promise.all([reload(), bills.reload(), photos.reload()]);
     onChanged();
   };
 
@@ -199,6 +202,35 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
             )}
           />
 
+          <div className="card">
+            <h2 className="row tight">
+              <span aria-hidden="true">📎</span> Fotos de respaldo por eliminar (próximos {PHOTO_WARN_DAYS} días){' '}
+              <span className="count-pill">{photos.data?.length ?? 0}</span>
+            </h2>
+            <p className="muted small" style={{ marginTop: -4 }}>
+              Las fotos se eliminan solas {PHOTO_DAYS_AFTER_PAID} días después del pago. Avisa al trabajador y a quien paga por si quieren descargarlas.
+            </p>
+            {!photos.data?.length ? (
+              <p className="muted small" style={{ margin: 0 }}>No hay fotos por eliminar en los próximos días.</p>
+            ) : (
+              <div className="report-list">
+                {photos.data.map((it) => (
+                  <div key={`${it.companyId}/${it.id}`} className="notice-row">
+                    <div className="notice-main">
+                      <div className="strong">{it.title}</div>
+                      <div className="muted small">
+                        {it.companyName} · {it.photos} foto(s) · se eliminan el {new Date(it.deleteOn).toLocaleDateString('es-CL')}
+                      </div>
+                    </div>
+                    <div className="notice-to small">Para: <b>{it.to.join(' y ')}</b></div>
+                    <div className="report-amount">{it.total}</div>
+                    <button className="primary" onClick={() => setPhotoOpen(it)}>✉ Preparar aviso</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {data.ownerTurn.length > 0 && (
             <Section
               icon="👤"
@@ -221,6 +253,18 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
             />
           )}
         </>
+      )}
+
+      {photoOpen && (
+        <NotifyModal
+          cid={photoOpen.companyId}
+          id={photoOpen.id}
+          title="Aviso de eliminación de fotos"
+          path={`/companies/${photoOpen.companyId}/reports/${photoOpen.id}/notify-photos`}
+          markKind="photos"
+          onClose={() => setPhotoOpen(null)}
+          onMarked={() => void refresh()}
+        />
       )}
 
       {billOpen && (

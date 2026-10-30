@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { MAX_ATTACHMENTS, type Attachment } from '@rendiciones/shared';
+import { MAX_ATTACHMENTS, PHOTO_DAYS_AFTER_PAID, PHOTO_WARN_DAYS, photoDeletionDate, type Attachment } from '@rendiciones/shared';
+import { toDate } from '../data';
 import { compressImage, friendlyError, listAttachments, type NewAttachment } from '../data';
 import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
@@ -62,8 +63,38 @@ function Grid({ photos, onRemove }: { photos: Shown[]; onRemove?: (key: string) 
   );
 }
 
+/** Aviso de la política de retención: las fotos se eliminan días después del pago. */
+export function PhotoRetentionNotice({ paidAt, deletedAt, hasPhotos }: { paidAt?: unknown; deletedAt?: unknown; hasPhotos: boolean }) {
+  const deleted = toDate(deletedAt);
+  if (deleted) {
+    return (
+      <div className="alert small" style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
+        🗑 Las fotos de respaldo se eliminaron el {deleted.toLocaleDateString('es-CL')} ({PHOTO_DAYS_AFTER_PAID} días después del pago, por política de Rendify).
+      </div>
+    );
+  }
+  const when = photoDeletionDate(toDate(paidAt)?.getTime());
+  if (!when || !hasPhotos) return null;
+  const daysLeft = Math.ceil((when.getTime() - Date.now()) / 86_400_000);
+  const soon = daysLeft <= PHOTO_WARN_DAYS;
+  return (
+    <div className={`alert small ${soon ? 'warn' : ''}`} style={soon ? undefined : { background: 'var(--surface-2)', color: 'var(--text-2)' }}>
+      {soon ? '⚠ ' : ''}Las fotos de respaldo se eliminarán el <b>{when.toLocaleDateString('es-CL')}</b>
+      {daysLeft > 0 ? ` (en ${daysLeft} día${daysLeft === 1 ? '' : 's'})` : ' (hoy)'}. Si las necesitas, descárgalas antes (ábrelas y usa “Descargar”).
+    </div>
+  );
+}
+
 /** Fotos de una rendición (solo lectura): para aprobadores, pagos y el dueño. */
-export function AttachmentsViewer({ cid, rid, compact }: { cid: string; rid: string; compact?: boolean }) {
+export function AttachmentsViewer({
+  cid, rid, compact, paidAt, deletedAt,
+}: {
+  cid: string;
+  rid: string;
+  compact?: boolean;
+  paidAt?: unknown;
+  deletedAt?: unknown;
+}) {
   const [list, setList] = useState<Attachment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -71,9 +102,13 @@ export function AttachmentsViewer({ cid, rid, compact }: { cid: string; rid: str
   }, [cid, rid]);
   if (error) return <div className="alert error small">{error}</div>;
   if (!list) return <LogoLoader text="Cargando fotos…" />;
-  if (!list.length) return compact ? null : <p className="muted small">Sin fotos de respaldo.</p>;
+  if (!list.length) {
+    if (deletedAt) return <PhotoRetentionNotice deletedAt={deletedAt} hasPhotos={false} />;
+    return compact ? null : <p className="muted small">Sin fotos de respaldo.</p>;
+  }
   return (
-    <div>
+    <div className="stack-sm">
+      <PhotoRetentionNotice paidAt={paidAt} deletedAt={deletedAt} hasPhotos />
       {compact && <div className="small strong" style={{ marginBottom: 6 }}>📎 Fotos de respaldo ({list.length})</div>}
       <Grid photos={list.map((a) => ({ key: a.id, name: a.name, caption: a.caption, dataUrl: a.dataUrl }))} />
     </div>

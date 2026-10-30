@@ -152,7 +152,7 @@ export function ReportPage() {
 
         <div className="card">
           <h2>📎 Fotos de respaldo</h2>
-          <AttachmentsViewer cid={company.id} rid={report.id} />
+          <AttachmentsViewer cid={company.id} rid={report.id} paidAt={report.paidAt} deletedAt={report.photosDeletedAt} />
         </div>
 
         <div className="card">

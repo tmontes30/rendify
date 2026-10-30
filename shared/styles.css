@@ -639,3 +639,5 @@ button.good:hover { background: var(--good-soft); }
   padding: 12px 16px; box-shadow: var(--shadow-lg); font-weight: 600; text-align: left; animation: fade-in 0.2s ease-out;
 }
 .live-toast:hover { background: var(--sidebar-active); }
+
+.stack-sm > * + * { margin-top: 10px; }

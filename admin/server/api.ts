@@ -14,6 +14,8 @@ import {
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   REMINDER_HOURS,
+  PHOTO_DAYS_AFTER_PAID,
+  PHOTO_WARN_DAYS,
   DOC_TYPE_LABELS,
   STATUS_LABELS,
   companySchema,
@@ -1198,8 +1200,8 @@ api.get(
   '/notifications/count',
   h(async (req, res) => {
     const n = await cached(`notices-${qCompany(req) ?? 'all'}`, 30_000, () => computeNotices(qCompany(req)));
-    const bill = await billingNotices(qCompany(req));
-    res.json({ count: n.payer.length + n.approvers.length + n.paid.length + n.ownerTurn.length + bill.length });
+    const [bill, photos] = await Promise.all([billingNotices(qCompany(req)), photoNotices(qCompany(req))]);
+    res.json({ count: n.payer.length + n.approvers.length + n.paid.length + n.ownerTurn.length + bill.length + photos.length });
   }),
 );
 
@@ -1207,7 +1209,7 @@ api.get(
 api.post(
   '/companies/:cid/reports/:id/notified',
   h(async (req, res) => {
-    const kind = req.body?.kind === 'payer' ? 'payer' : req.body?.kind === 'paid' ? 'paid' : 'approver';
+    const kind = ['payer', 'paid', 'photos'].includes(req.body?.kind) ? req.body.kind : 'approver';
     const ref = reportRef(req.params.cid, req.params.id);
     const snap = await ref.get();
     if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');
@@ -1705,5 +1707,141 @@ api.get(
       byUser,
       approverSpeed,
     });
+  }),
+);
+
+
+// ---------- Retención de fotos de respaldo ----------
+// Las fotos se eliminan PHOTO_DAYS_AFTER_PAID días después del pago. No hay servidor en la nube
+// (plan gratuito), así que la limpieza la hace este panel al iniciar y cada hora mientras está abierto.
+const DAY_MS = 86_400_000;
+
+/** Ids de las rendiciones (empresa/rendición) que tienen fotos, sin descargar las imágenes. */
+async function reportsWithPhotos() {
+  const snap = await db.collectionGroup('attachments').select().get();
+  const count = new Map<string, number>();
+  for (const d of snap.docs) {
+    const r = d.ref.parent.parent!;
+    const key = `${r.parent.parent!.id}/${r.id}`;
+    count.set(key, (count.get(key) ?? 0) + 1);
+  }
+  return count;
+}
+
+export async function cleanupExpiredPhotos() {
+  const now = Date.now();
+  const withPhotos = await reportsWithPhotos();
+  const companies = await db.collection('companies').get();
+  let reports = 0;
+  let photos = 0;
+  for (const c of companies.docs) {
+    const paid = await company(c.id).collection('reports').where('status', '==', 'paid').get();
+    for (const r of paid.docs) {
+      const d = r.data();
+      const key = `${c.id}/${r.id}`;
+      if (!withPhotos.has(key)) continue;
+      const paidAt = ms(d.paidAt);
+      if (!paidAt || now < paidAt + PHOTO_DAYS_AFTER_PAID * DAY_MS) continue;
+      const atts = await r.ref.collection('attachments').select().get();
+      const batch = db.batch();
+      atts.docs.forEach((a) => batch.delete(a.ref));
+      batch.update(r.ref, { photosDeletedAt: FieldValue.serverTimestamp() });
+      await batch.commit();
+      reports++;
+      photos += atts.size;
+    }
+  }
+  if (reports) {
+    invalidate();
+    console.log(`[fotos] Eliminadas ${photos} foto(s) de ${reports} rendición(es) pagadas hace más de ${PHOTO_DAYS_AFTER_PAID} días.`);
+  }
+  return { reports, photos };
+}
+
+/** Rendiciones pagadas cuyas fotos se eliminan dentro de los próximos PHOTO_WARN_DAYS días. */
+async function photoNotices(onlyCid?: string) {
+  const now = Date.now();
+  const withPhotos = await reportsWithPhotos();
+  const companies = (await db.collection('companies').get()).docs.filter((c) => (!onlyCid || c.id === onlyCid) && c.data().active !== false);
+  const out: (NoticeItem & { deleteOn: string; photos: number })[] = [];
+  for (const c of companies) {
+    const [paid, flows] = await Promise.all([company(c.id).collection('reports').where('status', '==', 'paid').get(), company(c.id).collection('flows').get()]);
+    const payerOf = new Map(flows.docs.map((f) => [f.id, f.data().payerUid as string | undefined]));
+    for (const r of paid.docs) {
+      const d = r.data() as Report;
+      const n = withPhotos.get(`${c.id}/${r.id}`);
+      if (!n) continue;
+      const paidAt = ms(d.paidAt);
+      const deleteAt = paidAt + PHOTO_DAYS_AFTER_PAID * DAY_MS;
+      if (!paidAt || deleteAt - now > PHOTO_WARN_DAYS * DAY_MS) continue;
+      if (d.lastNotice?.kind === 'photos' && ms(d.lastNotice.at) >= paidAt) continue;
+      const payer = d.flowId ? payerOf.get(d.flowId) : undefined;
+      const payerName = payer ? ((await db.collection('users').doc(payer).get()).data()?.displayName as string) : '';
+      out.push({
+        companyId: c.id,
+        companyName: c.data().name as string,
+        id: r.id,
+        title: d.title,
+        ownerName: d.ownerName,
+        total: formatTotals(d.totals),
+        levelName: '',
+        to: [d.ownerName, ...(payerName ? [payerName] : [])],
+        waitingHours: Math.max(0, Math.floor((deleteAt - now) / 3_600_000)),
+        isReminder: false,
+        deleteOn: new Date(deleteAt).toISOString(),
+        photos: n,
+      });
+    }
+  }
+  return out.sort((a, b) => a.deleteOn.localeCompare(b.deleteOn));
+}
+
+api.get(
+  '/notifications/photos',
+  h(async (req, res) => {
+    res.json(await photoNotices(qCompany(req)));
+  }),
+);
+
+/** Mensaje de aviso de eliminación de fotos (al trabajador y a quien paga). */
+api.get(
+  '/companies/:cid/reports/:id/notify-photos',
+  h(async (req, res) => {
+    const { cid, id } = req.params;
+    const [snap, comp] = await Promise.all([reportRef(cid, id).get(), assertCompany(cid)]);
+    if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');
+    const r = snap.data() as Report;
+    const deleteAt = new Date(ms(r.paidAt) + PHOTO_DAYS_AFTER_PAID * DAY_MS);
+    const fecha = deleteAt.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const flow = r.flowId ? (await company(cid).collection('flows').doc(r.flowId).get()).data() : undefined;
+    const uids = [r.ownerUid, ...(flow?.payerUid ? [flow.payerUid as string] : [])];
+    const users = await Promise.all(uids.map((u) => db.collection('users').doc(u).get()));
+    const link = `${config.webUrl}${cid}/#/r/${id}`;
+    res.json({
+      to: users.map((u) => u.data()?.email as string).filter(Boolean),
+      names: users.map((u) => u.data()?.displayName as string).filter(Boolean),
+      subject: `[${comp.name}] Las fotos de respaldo de "${r.title}" se eliminarán el ${fecha}`,
+      body: [
+        'Hola,',
+        '',
+        `La rendición "${r.title}" de ${r.ownerName} (${formatTotals(r.totals)}) ya fue pagada.`,
+        `Por política de Rendify, sus fotos de respaldo se eliminarán automáticamente el ${fecha} (${PHOTO_DAYS_AFTER_PAID} días después del pago).`,
+        '',
+        'Si necesitas conservarlas, descárgalas antes de esa fecha desde aquí:',
+        link,
+        '',
+        'Los datos de la rendición (gastos, montos, aprobaciones y pago) se mantienen.',
+        '',
+        'Saludos,',
+        'Rendify',
+      ].join('\n'),
+    });
+  }),
+);
+
+api.post(
+  '/maintenance/cleanup-photos',
+  h(async (_req, res) => {
+    res.json(await cleanupExpiredPhotos());
   }),
 );

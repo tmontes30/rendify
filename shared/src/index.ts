@@ -217,7 +217,9 @@ export interface Report {
   /** Datos del pago registrado por el usuario de pagos (o por el owner). */
   payment?: Payment;
   /** Último aviso por correo marcado por el owner (solo lo escribe el panel). */
-  lastNotice?: { kind: 'approver' | 'payer' | 'paid'; level: number; at: unknown };
+  lastNotice?: { kind: 'approver' | 'payer' | 'paid' | 'photos'; level: number; at: unknown };
+  /** Cuándo el panel eliminó las fotos de respaldo (política de retención). */
+  photosDeletedAt?: unknown;
 }
 
 export const PAYMENT_METHODS = ['transferencia', 'efectivo', 'cheque', 'otro'] as const;
@@ -250,6 +252,17 @@ export interface Attachment {
 }
 
 export const MAX_ATTACHMENTS = 10;
+
+/** Las fotos de respaldo se eliminan estos días después de pagada la rendición. */
+export const PHOTO_DAYS_AFTER_PAID = 5;
+/** Días de anticipación con que se avisa la eliminación. */
+export const PHOTO_WARN_DAYS = 3;
+
+/** Fecha en que se eliminarán las fotos de una rendición pagada (o null si no está pagada). */
+export function photoDeletionDate(paidAtMs: number | null | undefined): Date | null {
+  if (!paidAtMs) return null;
+  return new Date(paidAtMs + PHOTO_DAYS_AFTER_PAID * 86_400_000);
+}
 
 /** categoryId de los gastos con una categoría escrita por el usuario (no está en la lista). */
 export const CUSTOM_CATEGORY = 'custom';

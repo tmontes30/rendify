@@ -82,7 +82,7 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
               {resub.lastRejection && report.status !== 'rejected' && <ResubmittedNotice info={resub} owner={report.ownerName} />}
               <Progress report={report} flow={data.flow} />
               <ItemsMini items={data.items} categories={data.categories} />
-              <AttachmentsViewer cid={company.id} rid={report.id} compact />
+              <AttachmentsViewer cid={company.id} rid={report.id} compact paidAt={report.paidAt} deletedAt={report.photosDeletedAt} />
               <div className="row detail-actions">
                 {canEdit && (
                   <Link to={`/r/${report.id}`} className="btn primary">
