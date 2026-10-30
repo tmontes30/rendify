@@ -16,6 +16,7 @@ import {
 import { useSession } from '../auth';
 import { friendlyError, listCategories } from '../data';
 import { emptyRow, type RowState } from './ReportEditor';
+import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 // Formato oficial de la plantilla. Si cambias columnas, sube la versión.
 const FORMAT_ID = 'RENDICIONES_PLANTILLA_V1';
@@ -46,7 +47,7 @@ export function BulkUpload() {
   const [parsed, setParsed] = useState<ParsedRow[] | null>(null);
   const [fileName, setFileName] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Procesando…');
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 

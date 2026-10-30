@@ -102,7 +102,8 @@ export async function saveFlow(
       else if (flowIdNew === ref.id) flowIdNew = null;
     }
     // Aprobadores sin flujo quedan en este (para sus propias rendiciones).
-    if (!flowIdNew && !isSpecialProfile(p) && levelApprovers.has(p.uid)) flowIdNew = ref.id;
+    // (solo si no se eligieron trabajadores explícitamente: esa elección se respeta tal cual).
+    if (!want && !flowIdNew && !isSpecialProfile(p) && levelApprovers.has(p.uid)) flowIdNew = ref.id;
     const isApprover = approversAll.has(p.uid);
     if (flowIdNew !== (p.flowId ?? null) || isApprover !== !!p.isApprover || p.paymentsUser === undefined) {
       if (flowIdNew !== (p.flowId ?? null)) assigned++;

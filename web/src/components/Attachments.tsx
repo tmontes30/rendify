@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTACHMENTS, type Attachment } from '@rendiciones/shared';
 import { compressImage, friendlyError, listAttachments, type NewAttachment } from '../data';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 type Shown = { key: string; name: string; caption: string; dataUrl: string };
 
@@ -69,7 +70,7 @@ export function AttachmentsViewer({ cid, rid, compact }: { cid: string; rid: str
     listAttachments(cid, rid).then(setList, (e) => setError(friendlyError(e)));
   }, [cid, rid]);
   if (error) return <div className="alert error small">{error}</div>;
-  if (!list) return <p className="muted small">Cargando fotos…</p>;
+  if (!list) return <LogoLoader text="Cargando fotos…" />;
   if (!list.length) return compact ? null : <p className="muted small">Sin fotos de respaldo.</p>;
   return (
     <div>
@@ -93,7 +94,7 @@ export function AttachmentsEditor({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [error, setError] = useState<string | null>(null);
   const kept = existing.filter((a) => !removed.includes(a.id));
   const total = kept.length + pending.length;

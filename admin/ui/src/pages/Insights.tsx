@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { qs } from '../api';
 import { fmtDateTime, useCompany, useLoad } from '../hooks';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 interface Alert {
   id: string;
@@ -80,7 +81,7 @@ export function Insights() {
   const { data, error } = useLoad<InsightsData>(`/insights${qs({ companyId: companyId || undefined })}`);
 
   if (error) return <div className="alert error">{error}</div>;
-  if (!data) return <p className="muted">Calculando indicadores…</p>;
+  if (!data) return <LogoLoader text="Calculando indicadores…" variant="admin" />;
   const k = data.kpis;
 
   return (

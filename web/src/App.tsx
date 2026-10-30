@@ -12,6 +12,7 @@ import { Profile } from './pages/Profile';
 import { Payments } from './pages/Payments';
 import { People } from './pages/People';
 import { AdminFlows } from './pages/AdminFlows';
+import { BusyOverlay, LogoLoader } from '@rendiciones/shared/Busy';
 
 /** Nueva rendición; puede venir con gastos precargados desde la carga masiva. */
 function NewReport() {
@@ -21,7 +22,7 @@ function NewReport() {
 
 function Routed() {
   const { state } = useAuth();
-  if (state.status === 'loading') return <div className="center-page muted">Cargando…</div>;
+  if (state.status === 'loading') return <LogoLoader page />;
   if (state.status === 'signedOut') return <Login />;
   if (state.status === 'noAccess') return <NoAccess />;
   if (state.status === 'suspended') return <NoAccess suspended={state.companyName} />;
@@ -63,6 +64,7 @@ export function App() {
       <HashRouter>
         <Routed />
       </HashRouter>
+      <BusyOverlay />
     </AuthProvider>
   );
 }

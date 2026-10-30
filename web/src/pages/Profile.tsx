@@ -4,6 +4,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { LIMITS } from '@rendiciones/shared';
 import { useAuth, useSession } from '../auth';
 import { db } from '../firebase';
+import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 type Msg = { type: 'ok' | 'error'; text: string } | null;
 
@@ -57,7 +58,7 @@ function NameCard() {
   const { refresh } = useAuth();
   const { profile, user } = useSession();
   const [name, setName] = useState(profile.displayName);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [msg, setMsg] = useState<Msg>(null);
 
   async function save(e: FormEvent) {
@@ -102,7 +103,7 @@ function PasswordCard() {
   const [next, setNext] = useState('');
   const [repeat, setRepeat] = useState('');
   const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [msg, setMsg] = useState<Msg>(null);
 
   const checks = [

@@ -4,6 +4,7 @@ import { api, qs } from '../api';
 import { useCompany, useLoad } from '../hooks';
 import { PageHeader } from '../components';
 import { Insights } from './Insights';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 interface Row { key: string; totals: Totals }
 interface DashboardData {
@@ -79,7 +80,7 @@ export function Dashboard() {
       </div>
 
       {!data ? (
-        <p className="muted">Cargando…</p>
+        <LogoLoader variant="admin" />
       ) : (
         <>
           <div className="grid grid-tiles">

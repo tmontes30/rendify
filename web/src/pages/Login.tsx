@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth } from '../auth';
+import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 export function Login() {
   const { login, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Ingresando…');
   const [mode, setMode] = useState<'login' | 'reset'>('login');
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
 

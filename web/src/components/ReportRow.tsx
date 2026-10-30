@@ -16,6 +16,7 @@ import { useSession } from '../auth';
 import { fmtDate, friendlyError, getFlow, getReport, listCategories } from '../data';
 import { StatusBadge } from './StatusBadge';
 import { AttachmentsViewer } from './Attachments';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 interface Loaded {
   items: Item[];
@@ -74,7 +75,7 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
       {open && (
         <div className="report-detail">
           {error && <div className="alert error">{error}</div>}
-          {!data && !error && <p className="muted small">Cargando…</p>}
+          {!data && !error && <LogoLoader />}
           {data && (
             <>
               {resub.lastRejection && report.status !== 'rejected' && <ResubmittedNotice info={resub} owner={report.ownerName} />}

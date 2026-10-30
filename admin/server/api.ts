@@ -414,8 +414,10 @@ api.post(
     const col = company(req.params.cid).collection('flows');
     const id = await uniqueId(col, flow.name);
     await col.doc(id).set(flow);
-    await applyMembers(req.params.cid, id, (req.body as { members?: string[] })?.members);
-    const assigned = await assignFlowToApprovers(req.params.cid, id, flow.levels.flatMap((l) => l.approvers));
+    const members = (req.body as { members?: string[] })?.members;
+    await applyMembers(req.params.cid, id, members);
+    // Si se eligieron los trabajadores explícitamente, se respeta esa elección tal cual.
+    const assigned = members ? 0 : await assignFlowToApprovers(req.params.cid, id, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
     res.status(201).json({ id, assigned });
@@ -431,8 +433,10 @@ api.put(
     const flow = await buildFlow(req.params.cid, req.body);
     await ref.set(flow);
     await syncReportViewers(req.params.cid, req.params.fid, previous?.payerUid ?? null, flow);
-    await applyMembers(req.params.cid, req.params.fid, (req.body as { members?: string[] })?.members);
-    const assigned = await assignFlowToApprovers(req.params.cid, req.params.fid, flow.levels.flatMap((l) => l.approvers));
+    const members = (req.body as { members?: string[] })?.members;
+    await applyMembers(req.params.cid, req.params.fid, members);
+    // Si se eligieron los trabajadores explícitamente, se respeta esa elección tal cual.
+    const assigned = members ? 0 : await assignFlowToApprovers(req.params.cid, req.params.fid, flow.levels.flatMap((l) => l.approvers));
     await syncApprovers(req.params.cid);
     invalidate();
     res.json({ ok: true, assigned });

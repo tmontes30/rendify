@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { LIMITS, type Area, type Flow } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { adminError, createPerson, listAreas, listFlows, listPeople, sendPasswordLink, updatePerson, type Person } from '../adminData';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 /** Contraseña temporal aleatoria (sin caracteres ambiguos). */
 function generatePassword(len = 14) {
@@ -78,7 +79,7 @@ export function People() {
 
       <div className="card table-wrap">
         {!people ? (
-          <p className="muted">Cargando…</p>
+          <LogoLoader />
         ) : shown.length === 0 ? (
           <p className="muted">Sin resultados.</p>
         ) : (
@@ -160,7 +161,7 @@ function PersonModal({
   const [flowId, setFlowId] = useState(person?.flowId ?? '');
   const [paymentsUser, setPaymentsUser] = useState(!!person?.paymentsUser);
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
 

@@ -9,6 +9,7 @@ import { Users } from './pages/Users';
 import { Flows } from './pages/Flows';
 import { Catalog } from './pages/Catalog';
 import { Notifications } from './pages/Notifications';
+import { BusyOverlay, LogoLoader } from '@rendiciones/shared/Busy';
 
 const PAGES: Record<string, { label: string; icon: string; el: (ctx: { refreshCount: () => void }) => ReactNode }> = {
   panel: { label: 'Panel', icon: '◧', el: () => <Dashboard /> },
@@ -94,7 +95,7 @@ export function App() {
       </div>
     );
   }
-  if (!session) return <div className="center-page muted">Cargando…</div>;
+  if (!session) return <LogoLoader page variant="admin" />;
 
   const companyName = (id: string | null | undefined) => companies.find((c) => c.id === id)?.name ?? id ?? '—';
 
@@ -151,6 +152,7 @@ export function App() {
           <div className="container">{PAGES[page].el({ refreshCount })}</div>
         </main>
       </div>
+      <BusyOverlay variant="admin" />
     </CompanyContext.Provider>
   );
 }

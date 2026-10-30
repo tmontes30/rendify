@@ -18,6 +18,7 @@ import {
 import { api, qs } from '../api';
 import { Modal, PageHeader } from '../components';
 import { fmtDateTime, useCatalog, useCompany, useLoad } from '../hooks';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 interface ReportOut {
   id: string;
@@ -79,7 +80,7 @@ export function Reports() {
       {list.error && <div className="alert error">{list.error}</div>}
       <div className="card table-wrap">
         {!list.data ? (
-          <p className="muted">Cargando…</p>
+          <LogoLoader variant="admin" />
         ) : list.data.length === 0 ? (
           <p className="muted">{status ? 'No hay rendiciones en este estado.' : 'Esta empresa aún no tiene rendiciones.'}</p>
         ) : (
@@ -129,7 +130,7 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
   const { areaName, categoryName } = useCatalog(cid);
   const { companyName } = useCompany();
   const [comment, setComment] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
   const [notify, setNotify] = useState(false);
   const [photo, setPhoto] = useState<{ name: string; caption: string; dataUrl: string } | null>(null);
@@ -162,7 +163,7 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
     <Modal title={r?.title ?? 'Rendición'} onClose={onClose} wide>
       {error && <div className="alert error">{error}</div>}
       {!data || !r ? (
-        <p className="muted">Cargando…</p>
+        <LogoLoader variant="admin" />
       ) : (
         <div className="stack">
           <div className="row small">
@@ -352,7 +353,7 @@ export function NotifyModal({
 }) {
   const { data, error } = useLoad<NotifyData>(path ?? `/companies/${cid}/reports/${id}/notify${toPayer ? '?to=payer' : ''}`);
   const [copied, setCopied] = useState<string | null>(null);
-  const [marking, setMarking] = useState(false);
+  const [marking, setMarking] = useGlobalBusy('Guardando…');
 
   async function mark() {
     setMarking(true);
@@ -380,7 +381,7 @@ export function NotifyModal({
     <Modal title={title ?? 'Avisar por correo'} onClose={onClose}>
       {error && <div className="alert error">{error}</div>}
       {!data ? (
-        <p className="muted">Preparando mensaje…</p>
+        <LogoLoader text="Preparando mensaje…" variant="admin" />
       ) : (
         <div className="stack">
           <CopyField label="Para" value={data.to.join(', ') || '(sin correo)'} hint={data.names.join(', ')} onCopy={() => copy('Para', data.to.join(', '))} copied={copied === 'Para'} />

@@ -22,6 +22,7 @@ import { useSession } from '../auth';
 import { deleteDraft, friendlyError, listAttachments, listCategories, saveReport, type ItemDraft, type NewAttachment } from '../data';
 import { AttachmentsEditor } from '../components/Attachments';
 import { StatusBadge } from '../components/StatusBadge';
+import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 export interface RowState {
   key: string;
@@ -104,7 +105,7 @@ export function ReportEditor({
     existing ? existing.items.map(rowFromItem) : initialRows?.length ? initialRows : [emptyRow(defaultCurrency(company.baseCurrency))],
   );
   const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [existingAtt, setExistingAtt] = useState<Attachment[]>([]);

@@ -4,6 +4,7 @@ import { STATUS_LABELS, formatTotals, type Report, type Status } from '@rendicio
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listMyReports } from '../data';
 import { ReportRow } from '../components/ReportRow';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 const FILTERS: { key: Status | ''; label: string }[] = [
   { key: '', label: 'Todas' },
@@ -60,7 +61,7 @@ export function MyReports() {
           ))}
         </nav>
         {!reports ? (
-          <p className="muted">Cargando…</p>
+          <LogoLoader />
         ) : shown.length === 0 ? (
           <div className="empty">
             {reports.length ? (

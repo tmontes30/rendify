@@ -6,6 +6,7 @@ import { api, qs } from '../api';
 import { billingLabel, type Billing } from './Companies';
 import { formatMoney } from '@rendiciones/shared';
 import { NotifyModal } from './Reports';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 interface NoticeItem {
   companyId: string;
@@ -110,7 +111,7 @@ export function Notifications({ onChanged }: { onChanged: () => void }) {
       )}
 
       {!data ? (
-        <p className="muted">Cargando…</p>
+        <LogoLoader variant="admin" />
       ) : (
         <>
           <Section

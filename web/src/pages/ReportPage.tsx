@@ -23,6 +23,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ResubmittedNotice } from '../components/ReportRow';
 import { AttachmentsViewer } from '../components/Attachments';
 import { ReportEditor } from './ReportEditor';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 export function ReportPage() {
   const { id = '' } = useParams();
@@ -57,7 +58,7 @@ export function ReportPage() {
 
   if (notFound) return <div className="card empty">Rendición no encontrada. <Link to="/mis-rendiciones">Volver</Link></div>;
   if (error && !data) return <div className="alert error">{error}</div>;
-  if (!data) return <p className="muted">Cargando…</p>;
+  if (!data) return <LogoLoader />;
 
   const { report, items } = data;
   const isOwner = report.ownerUid === profile.uid;
@@ -166,7 +167,7 @@ function DecisionBox({ report, items, flow, onDone }: { report: Report; items: I
   const session = useSession();
   const { company } = session;
   const [comment, setComment] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [err, setErr] = useState<string | null>(null);
   const next = flow ? nextRequiredLevel(flow.levels, report.currentLevel, sumTotals(items), company.baseCurrency) : null;
 
@@ -262,7 +263,7 @@ function PaymentBox({ report, onDone }: { report: Report; onDone: () => void }) 
   const [reference, setReference] = useState('');
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
   const [comment, setComment] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [err, setErr] = useState<string | null>(null);
 
   async function pay() {

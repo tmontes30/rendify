@@ -3,6 +3,7 @@ import { LIMITS, formatMoney, fromMinor, isSpecialProfile, toMinor, type Currenc
 import { api } from '../api';
 import { Modal, NeedsCompany, PageHeader } from '../components';
 import { useCatalog, useCompany, useLoad } from '../hooks';
+import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 interface UserLite {
   uid: string;
@@ -174,7 +175,7 @@ function FlowModal({
   const [payerUid, setPayerUid] = useState<string>(flow?.payerUid ?? '');
   const [members, setMembers] = useState<string[]>(flow ? users.filter((u) => u.flowId === flow.id && !isSpecialProfile(u)).map((u) => u.uid) : []);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
 
   const update = (i: number, patch: Partial<LevelDraft>) => setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   /** d = +1 sube en pantalla (más importante, más tarde en la cadena). */

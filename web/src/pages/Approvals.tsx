@@ -4,6 +4,7 @@ import { resubmissionInfo, type Report } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, listApproverHistory, listPendingForMe } from '../data';
 import { ReportRow } from '../components/ReportRow';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 export function Approvals() {
   const { profile, company } = useSession();
@@ -53,7 +54,7 @@ export function Approvals() {
 
         {tab === 'pending' &&
           (!pending ? (
-            <p className="muted">Cargando…</p>
+            <LogoLoader />
           ) : pending.length === 0 ? (
             <div className="empty muted">No tienes rendiciones pendientes. 🎉</div>
           ) : (
@@ -91,7 +92,7 @@ export function Approvals() {
 
         {tab === 'history' &&
           (!history ? (
-            <p className="muted">Cargando…</p>
+            <LogoLoader />
           ) : history.length === 0 ? (
             <div className="empty muted">Aún no has revisado rendiciones.</div>
           ) : (

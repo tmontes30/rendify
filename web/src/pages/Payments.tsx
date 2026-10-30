@@ -5,6 +5,7 @@ import { useSession } from '../auth';
 import { fmtDate, friendlyError, listPayments, toDate } from '../data';
 import { ReportRow } from '../components/ReportRow';
 import { Tile } from './MyReports';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 type Tab = 'topay' | 'paid' | 'all';
 
@@ -72,7 +73,7 @@ export function Payments() {
           </button>
         </nav>
         {!reports ? (
-          <p className="muted">Cargando…</p>
+          <LogoLoader />
         ) : shown.length === 0 ? (
           <div className="empty muted">{tab === 'topay' ? 'No hay rendiciones por pagar. 🎉' : 'Aún no hay pagos registrados.'}</div>
         ) : (

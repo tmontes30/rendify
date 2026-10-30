@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { LIMITS, formatMoney, fromMinor, isSpecialProfile, toMinor, type Area, type Flow } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { adminError, deleteFlow, listAreas, listFlows, listPeople, saveFlow, type Person } from '../adminData';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 export function AdminFlows() {
   const session = useSession();
@@ -56,7 +57,7 @@ export function AdminFlows() {
       {flash && <div className="alert ok">{flash}</div>}
 
       {!flows ? (
-        <p className="muted">Cargando…</p>
+        <LogoLoader />
       ) : flows.length === 0 ? (
         <div className="card empty muted">Aún no hay flujos. Crea el primero: arriba el más importante.</div>
       ) : (
@@ -149,7 +150,7 @@ function FlowEditor({
       { key: newKey(), name: '', minText: '', approvers: [] },
     ],
   );
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [error, setError] = useState<string | null>(null);
   const last = levels.length - 1;
   const approverPool = people.filter((p) => !isSpecialProfile(p));

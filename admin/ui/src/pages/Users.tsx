@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { Modal, PageHeader } from '../components';
 import { fmtDateTime, useCatalog, useCompany, useLoad } from '../hooks';
+import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
 interface UserRow {
   uid: string;
@@ -68,7 +69,7 @@ export function Users() {
 
       <div className="card table-wrap">
         {!users.data ? (
-          <p className="muted">Cargando…</p>
+          <LogoLoader variant="admin" />
         ) : rows.length === 0 ? (
           <p className="muted">Sin usuarios.</p>
         ) : (
@@ -155,7 +156,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   const [paymentsUser, setPaymentsUser] = useState(!!user?.paymentsUser);
   const [companyAdmin, setCompanyAdmin] = useState(!!user?.companyAdmin);
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useGlobalBusy('Guardando…');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
   const [resetLink, setResetLink] = useState<string | null>(null);

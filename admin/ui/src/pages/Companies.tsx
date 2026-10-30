@@ -3,6 +3,7 @@ import { CURRENCIES, CURRENCY_CODES, STATUS_LABELS, formatMoney, formatTotals, f
 import { api } from '../api';
 import { Modal, PageHeader } from '../components';
 import { fmtDateTime, useCompany, useLoad, type CompanyRow } from '../hooks';
+import { LogoLoader } from '@rendiciones/shared/Busy';
 
 export interface Billing {
   dueDate: string | null;
@@ -293,7 +294,7 @@ function CompanySummary({ cid }: { cid: string }) {
       </div>
       {error && <div className="alert error">{error}</div>}
       {!data ? (
-        <p className="muted">Cargando resumen…</p>
+        <LogoLoader text="Cargando resumen…" variant="admin" />
       ) : (
         <>
           {(data.users.withoutFlow.length > 0 || data.reports.waitingOwner > 0 || data.flows.length === 0 || data.categories.active === 0 || data.flows.some((f) => !f.hasPayer)) && (
