@@ -33,7 +33,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link to={profile.paymentsUser ? '/pagos' : '/'} className="sidebar-brand" title="Ir al inicio">
+        <Link to={profile.companyAdmin ? '/personas' : profile.paymentsUser ? '/pagos' : '/'} className="sidebar-brand" title="Ir al inicio">
           <Logo />
           <div>
             <div className="brand-name">Rendiciones</div>
@@ -41,7 +41,19 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         </Link>
         <nav className="side-nav">
-          {!profile.paymentsUser && (
+          {profile.companyAdmin && (
+            <>
+              <NavLink to="/personas">
+                <span className="nav-icon" aria-hidden="true">👥</span>
+                <span>Personas</span>
+              </NavLink>
+              <NavLink to="/flujos">
+                <span className="nav-icon" aria-hidden="true">⇉</span>
+                <span>Flujos de aprobación</span>
+              </NavLink>
+            </>
+          )}
+          {!profile.paymentsUser && !profile.companyAdmin && (
             <>
               <NavLink to="/" end>
                 <span className="nav-icon" aria-hidden="true">☰</span>

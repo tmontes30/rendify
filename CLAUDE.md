@@ -14,7 +14,8 @@ shared/          Código común (TS puro, sin build): tipos, monedas, estados, r
 web/             App pública (React + Vite) → GitHub Pages
   src/auth.tsx   ← sesión: claims + perfil + empresa + área + flujo
   src/data.ts    ← TODAS las lecturas/escrituras a Firestore de la web
-  src/pages/     MyReports, ReportEditor (crear/editar), ReportPage (ver/decidir/pagar), Approvals, Payments, BulkUpload, Profile, Login
+  src/pages/     MyReports, ReportEditor (crear/editar), ReportPage (ver/decidir/pagar), Approvals, Payments, People + AdminFlows (admin. de personal), BulkUpload, Profile, Login
+  src/adminData.ts ← operaciones del administrador de personal (crear cuentas con app secundaria, perfiles, flujos)
   src/components ReportRow (fila desplegable con avance), Layout (barra lateral)
 admin/           Panel del owner, SOLO local (127.0.0.1:5050)
   server/        Express + Firebase Admin SDK (salta las reglas)
@@ -51,7 +52,7 @@ Al reiniciar el panel: matar el proceso que escucha en el puerto 5050 (PowerShel
 
 ```
 users/{uid}                         perfil (fuente de verdad del acceso)
-  email, displayName, companyId, areaId, flowId|null, isApprover, isPayer, paymentsUser, active, createdAt
+  email, displayName, companyId, areaId, flowId|null, isApprover, isPayer, paymentsUser, companyAdmin, active, createdAt, createdBy?
 companies/{cid}                     name, baseCurrency, active, createdAt
   areas/{id}, categories/{id}       name, active   (al crear empresa se cargan DEFAULT_AREAS/DEFAULT_CATEGORIES)
   flows/{fid}                       name, levels[{name, minAmount, approvers[uid]}], payerUid,
@@ -64,7 +65,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
     items/{iid}                     date, categoryId, description, vendor, docType, docNumber, amount (entero, unidad mínima), currency
 ```
 
-- **Custom claim** del token: solo `{ companyId }`. Las reglas exigen que coincida con `users/{uid}.companyId` y `active == true` → deshabilitar corta el acceso al instante.
+- **Acceso por perfil (sin claims):** las reglas usan solo `users/{uid}` (`companyId`, `active`, roles); el owner aún pone el claim `{ companyId }` pero no se usa (las cuentas creadas por el administrador de personal desde la web no lo tienen). Deshabilitar o mover de empresa corta el acceso al instante.
 - **Montos** siempre enteros en unidad mínima (`toMinor`/`fromMinor`/`formatMoney`). Multimoneda: totales por moneda, sin conversión.
 - `Approval = { level, levelName, uid, name, decision: 'approved'|'rejected', comment, atMs }` (atMs porque serverTimestamp no se permite dentro de arrays).
 
@@ -81,6 +82,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Suspensión de empresa** (mensualidad impaga): en Empresas, "⏸ Suspender servicio" pone `active: false` + `suspendedAt` + `suspendedReason`. Las reglas (`member()` exige empresa activa; `belongsTo()` solo permite leer el doc de la empresa) bloquean todo al instante; la web muestra "Servicio suspendido temporalmente". "▶ Reactivar servicio" lo devuelve tal cual. Los datos no se borran y no genera notificaciones.
 - **Facturación del servicio (mensualidad de cada empresa):** se guarda en `billing/{cid}` (colección sin reglas → solo el panel la lee; los usuarios de la empresa no la ven): `dueDate`, `billingDay`, `amount`, `currency`, `contactName`, `contactEmail`, `lastPaidAt`, `lastPaidFor`, `lastReminderAt`. Estados: `ok` / `soon` (≤ 5 días, amarillo) / `overdue` (vencida, rojo) / `none`. En Empresas cada tarjeta muestra el chip y "✓ Pago recibido" (mueve `dueDate` al mismo día del mes siguiente). En Notificaciones, sección "🧾 Mensualidades" con recordatorio de cobro (correo al contacto), pago recibido y suspender (si está vencida). Cuenta en el contador del menú.
 - **Panel (Dashboard) = tablero del owner:** `GET /api/insights` (en `admin/server/api.ts`) calcula **pendientes para accionar** (avisos sin enviar, rendiciones que esperan al owner, mensualidades vencidas/por vencer, flujos sin payer, usuarios de pagos sin flujo, personas sin flujo, empresas sin flujos, rendiciones atascadas +3 días, aprobadas sin pagar +7 días, empresas sin fecha de facturación, personas que nunca ingresaron, cuentas sin empresa), cada una con severidad y botón "Resolver →" a su sección; **KPIs de uso** (activos 7/30 días con `lastSignInTime` de Auth, enviadas, tiempo promedio de aprobación y de pago); gráfico semanal (12 semanas, SVG propio con tooltip, una serie); uso por empresa, por persona y velocidad de aprobadores. UI en `admin/ui/src/pages/Insights.tsx`; debajo sigue el gasto por área/mes/categoría/trabajador.
+- **Administrador de personal (`companyAdmin`, casilla que marca el owner):** en la web ve solo **Personas** y **Flujos** de su empresa (+ Pagos / Por aprobar si tiene esos roles). Crea cuentas con una **segunda instancia de Firebase** (`createAccount` en `web/src/firebase.ts`, no cierra su sesión; si falla el perfil, borra la cuenta), edita área/flujo/usuario de pagos/activo, envía enlace de clave (`sendPasswordResetEmail`). Edita flujos con el mismo editor de arriba-hacia-abajo; `saveFlow` (en `adminData.ts`) recalcula `isApprover`, asigna flujo a aprobadores sin flujo y, si cambia quién paga, actualiza `approverUids` de las rendiciones enviadas. Reglas: solo su empresa, no puede crear administradores ni cambiar `companyAdmin`/`companyId`, payer del flujo debe ser `paymentsUser` de la empresa, puede **leer** rendiciones de su empresa y solo cambiar `approverUids` dentro de los participantes del flujo. No gestiona áreas/categorías (las crea el owner).
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.
@@ -92,7 +94,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 ## Seguridad (no romper)
 
 - `firebase/firestore.rules` es la barrera real de la web: deny por defecto, aislamiento por empresa, validación de campos/tipos/largos, envío solo con los aprobadores exactos del flujo y el nivel de partida exacto (`expectedStart`, desenrollado hasta 8 niveles), aprobación solo por `currentApprovers`, historial `approvals` solo se puede **agregar** (slice; ojo: `list[0:0]` da error en reglas, por eso el caso vacío va aparte), usuario solo puede cambiar su `displayName`.
-- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 28 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
+- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 34 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
 - Si se agrega una moneda: `CURRENCIES` en shared **y** `currencies()` en las reglas.
 - El panel owner escucha solo en `127.0.0.1`, exige `x-admin-token` (aleatorio por inicio, llega por `#t=` en la URL), valida Host/Origin y manda CSP. Todo lo privilegiado (usuarios, claims, flujos, catálogos, aprobación final, pagos, avisos) vive ahí.
 - La web no tiene secretos (la config Firebase es pública por diseño).

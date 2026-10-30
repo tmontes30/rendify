@@ -17,6 +17,8 @@ const u = {
   other: { uid: 'o1', companyId: B, name: 'Eva OtraEmpresa', flowId: null },
   disabled: { uid: 'd1', companyId: A, name: 'Fede Inactivo', flowId: 'f1', active: false },
   payer: { uid: 'p1', companyId: A, name: 'Pía Tesorería', flowId: null },
+  admin: { uid: 'a1', companyId: A, name: 'Rosa RRHH', flowId: null },
+  adminB: { uid: 'a2', companyId: B, name: 'Pablo RRHH B', flowId: null },
 } satisfies Record<string, U>;
 
 const FLOW = {
@@ -78,7 +80,7 @@ beforeEach(async () => {
     }
     await setDoc(doc(db, 'companies', A, 'flows', 'f1'), FLOW);
     for (const x of Object.values(u) as U[]) {
-      await setDoc(doc(db, 'users', x.uid), { email: `${x.uid}@x.cl`, displayName: x.name, companyId: x.companyId, areaId: 'ventas', flowId: x.flowId, isApprover: false, paymentsUser: x.uid === 'p1', active: x.active ?? true });
+      await setDoc(doc(db, 'users', x.uid), { email: `${x.uid}@x.cl`, displayName: x.name, companyId: x.companyId, areaId: 'ventas', flowId: x.flowId, isApprover: false, paymentsUser: x.uid === 'p1', companyAdmin: x.uid === 'a1' || x.uid === 'a2', active: x.active ?? true });
     }
   });
 });
@@ -329,5 +331,68 @@ describe('empresa suspendida', () => {
       await updateDoc(doc(ctx.firestore(), 'companies', A), { active: true });
     });
     await assertSucceeds(getDoc(doc(reportsOf(u.worker), 'r1')));
+  });
+});
+
+describe('administrador de personal', () => {
+  const person = (extra: Record<string, unknown> = {}) => ({
+    email: 'nuevo@x.cl', displayName: 'Nuevo Trabajador', companyId: A, areaId: 'ventas', flowId: 'f1',
+    isApprover: false, paymentsUser: false, active: true, createdAt: serverTimestamp(), createdBy: 'a1', ...extra,
+  });
+  const flow = (extra: Record<string, unknown> = {}) => ({
+    name: 'Nuevo flujo', levels: [{ name: 'Jefe', minAmount: 0, approvers: ['b1'] }], payerUid: 'p1',
+    allApprovers: ['b1', 'p1'], approverNames: { b1: 'Carla Jefa', p1: 'Pía Tesorería' },
+    updatedAt: serverTimestamp(), updatedBy: 'a1', ...extra,
+  });
+
+  it('una cuenta sin claims pero con perfil activo funciona (creada desde la web)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users', 'n1'), { email: 'n@x.cl', displayName: 'Sin Claims', companyId: A, areaId: 'ventas', flowId: 'f1', isApprover: false, paymentsUser: false, active: true });
+    });
+    const db = env.authenticatedContext('n1').firestore();
+    await assertSucceeds(getDoc(doc(db, 'companies', A, 'flows', 'f1')));
+  });
+
+  it('crea personas en su empresa, no en otra ni administradores', async () => {
+    const db = fs(u.admin);
+    await assertSucceeds(setDoc(doc(db, 'users', 'n2'), person()));
+    await assertFails(setDoc(doc(db, 'users', 'n3'), person({ companyId: B })));
+    await assertFails(setDoc(doc(db, 'users', 'n4'), person({ companyAdmin: true })));
+    await assertFails(setDoc(doc(db, 'users', 'n5'), person({ createdBy: 'otro' })));
+  });
+
+  it('un usuario normal no crea ni edita personas', async () => {
+    await assertFails(setDoc(doc(fs(u.boss), 'users', 'n6'), person({ createdBy: 'b1' })));
+    await assertFails(updateDoc(doc(fs(u.boss), 'users', u.worker.uid), { active: false }));
+  });
+
+  it('edita personas de su empresa sin moverlas ni volverlas administradoras', async () => {
+    const db = fs(u.admin);
+    await assertSucceeds(getDocs(query(collection(db, 'users'), where('companyId', '==', A))));
+    await assertSucceeds(updateDoc(doc(db, 'users', u.worker.uid), { areaId: 'operaciones', paymentsUser: true }));
+    await assertSucceeds(updateDoc(doc(db, 'users', u.worker2.uid), { active: false }));
+    await assertFails(updateDoc(doc(db, 'users', u.worker.uid), { companyId: B }));
+    await assertFails(updateDoc(doc(db, 'users', u.worker.uid), { companyAdmin: true }));
+    await assertFails(updateDoc(doc(db, 'users', u.other.uid), { active: false }));
+    await assertFails(getDocs(query(collection(db, 'users'), where('companyId', '==', B))));
+  });
+
+  it('crea y edita flujos de su empresa; quien paga debe ser usuario de pagos', async () => {
+    const db = fs(u.admin);
+    await assertSucceeds(setDoc(doc(db, 'companies', A, 'flows', 'f9'), flow()));
+    await assertFails(setDoc(doc(db, 'companies', A, 'flows', 'f8'), flow({ payerUid: 'b1' })));
+    await assertFails(setDoc(doc(db, 'companies', A, 'flows', 'f7'), flow({ levels: [] })));
+    await assertFails(setDoc(doc(fs(u.adminB), 'companies', A, 'flows', 'f6'), flow({ updatedBy: 'a2' })));
+    await assertFails(setDoc(doc(fs(u.boss), 'companies', A, 'flows', 'f5'), flow({ updatedBy: 'b1' })));
+  });
+
+  it('ve las rendiciones de su empresa y solo ajusta quién puede verlas dentro del flujo', async () => {
+    await seed('r1', u.worker, { status: 'approved', currentApprovers: [], approverUids: ['b1', 'c1'] });
+    const db = fs(u.admin);
+    await assertSucceeds(getDoc(doc(db, 'companies', A, 'reports', 'r1')));
+    await assertSucceeds(updateDoc(doc(db, 'companies', A, 'reports', 'r1'), { approverUids: ['b1', 'c1', 'p1'] }));
+    await assertFails(updateDoc(doc(db, 'companies', A, 'reports', 'r1'), { approverUids: ['b1', 'c1', 'p1', 'a1'] }));
+    await assertFails(updateDoc(doc(db, 'companies', A, 'reports', 'r1'), { status: 'paid' }));
+    await assertFails(getDoc(doc(fs(u.adminB), 'companies', A, 'reports', 'r1')));
   });
 });

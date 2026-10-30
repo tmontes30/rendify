@@ -10,6 +10,8 @@ import { Approvals } from './pages/Approvals';
 import { BulkUpload } from './pages/BulkUpload';
 import { Profile } from './pages/Profile';
 import { Payments } from './pages/Payments';
+import { People } from './pages/People';
+import { AdminFlows } from './pages/AdminFlows';
 
 /** Nueva rendición; puede venir con gastos precargados desde la carga masiva. */
 function NewReport() {
@@ -26,14 +28,16 @@ function Routed() {
   return (
     <Layout>
       <Routes>
-        {state.profile.paymentsUser ? (
-          // Usuario de pagos: solo su sección de pagos (y aprobar si además es aprobador).
+        {state.profile.companyAdmin || state.profile.paymentsUser ? (
+          // Plataformas especiales: administrador de personal y/o usuario de pagos.
           <>
-            <Route path="/pagos" element={<Payments />} />
+            {state.profile.companyAdmin && <Route path="/personas" element={<People />} />}
+            {state.profile.companyAdmin && <Route path="/flujos" element={<AdminFlows />} />}
+            {state.profile.paymentsUser && <Route path="/pagos" element={<Payments />} />}
+            {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
             <Route path="/r/:id" element={<ReportPage />} />
             <Route path="/perfil" element={<Profile />} />
-            {state.profile.isApprover && <Route path="/aprobar" element={<Approvals />} />}
-            <Route path="*" element={<Navigate to="/pagos" replace />} />
+            <Route path="*" element={<Navigate to={state.profile.companyAdmin ? '/personas' : '/pagos'} replace />} />
           </>
         ) : (
           <>

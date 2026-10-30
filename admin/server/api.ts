@@ -496,6 +496,7 @@ api.post(
         flowId: body.flowId,
         isApprover: false,
         paymentsUser: body.paymentsUser,
+        companyAdmin: body.companyAdmin,
         active: true,
         createdAt: FieldValue.serverTimestamp(),
       });

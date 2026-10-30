@@ -34,3 +34,35 @@ if (useEmulator) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
 }
+
+// ---------- Creación de cuentas por el administrador de personal ----------
+// Se usa una segunda instancia de Firebase para crear la cuenta: así el administrador
+// no pierde su propia sesión (crear un usuario inicia sesión con él en esa instancia).
+import { deleteUser, createUserWithEmailAndPassword, signOut as signOutAuth } from 'firebase/auth';
+import { initializeApp as initApp, getApps } from 'firebase/app';
+
+function secondaryAuth() {
+  const existing = getApps().find((a) => a.name === 'account-creator');
+  const second = existing ?? initApp(app.options, 'account-creator');
+  const a = getAuth(second);
+  if (useEmulator && !existing) connectAuthEmulator(a, 'http://127.0.0.1:9099', { disableWarnings: true });
+  return a;
+}
+
+/**
+ * Crea la cuenta de acceso y ejecuta `withUid` (p. ej. guardar el perfil). Si eso falla,
+ * borra la cuenta recién creada para no dejar cuentas huérfanas.
+ */
+export async function createAccount(email: string, password: string, withUid: (uid: string) => Promise<void>) {
+  const a = secondaryAuth();
+  const cred = await createUserWithEmailAndPassword(a, email.trim().toLowerCase(), password);
+  try {
+    await withUid(cred.user.uid);
+  } catch (e) {
+    await deleteUser(cred.user).catch(() => undefined);
+    throw e;
+  } finally {
+    await signOutAuth(a).catch(() => undefined);
+  }
+  return cred.user.uid;
+}

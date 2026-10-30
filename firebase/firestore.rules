@@ -5,7 +5,7 @@ rules_version = '2';
 // Principio: todo lo que no esté explícitamente permitido está denegado.
 //
 // Estructura:
-//   users/{uid}                              perfil (escrito solo por el owner)
+//   users/{uid}                              perfil (lo escriben el owner y el administrador de personal)
 //   companies/{cid}                          empresa
 //   companies/{cid}/areas|categories|flows   catálogos de la empresa
 //   companies/{cid}/reports/{rid}/items/{iid}
@@ -26,11 +26,12 @@ service cloud.firestore {
       return get(profilePath()).data;
     }
 
-    // Miembro activo de la empresa: el claim del token y el perfil (fuente de verdad)
-    // deben coincidir. Deshabilitar o mover de empresa corta el acceso de inmediato.
+    // Miembro activo de la empresa según su perfil users/{uid} (fuente de verdad; lo escriben
+    // solo el owner o el administrador de personal de esa empresa). Deshabilitar o mover de
+    // empresa corta el acceso de inmediato. No se usan claims porque las cuentas creadas por el
+    // administrador de personal desde la web no los tienen.
     function belongsTo(cid) {
       return request.auth != null
-        && request.auth.token.companyId == cid
         && exists(profilePath())
         && profile().active == true
         && profile().companyId == cid;
@@ -56,9 +57,47 @@ service cloud.firestore {
       return ['CLP', 'USD', 'EUR', 'ARS', 'PEN', 'BRL', 'MXN', 'COP'];
     }
 
-    // ---------- Perfil propio ----------
+    // Administrador de personal de la empresa (casilla que marca el owner).
+    function companyAdmin(cid) {
+      return member(cid) && profile().companyAdmin == true;
+    }
+
+    function userFields(d) {
+      return str(d.displayName, 1, 100)
+        && d.displayName.trim() == d.displayName
+        && str(d.areaId, 1, 64)
+        && (d.flowId == null || str(d.flowId, 1, 64))
+        && d.isApprover is bool
+        && d.paymentsUser is bool
+        && d.active is bool;
+    }
+
+    // ---------- Perfiles ----------
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || companyAdmin(resource.data.companyId));
+
+      // El administrador de personal crea perfiles en SU empresa (nunca otros administradores).
+      allow create: if companyAdmin(request.resource.data.companyId)
+        && request.resource.data.keys().hasOnly([
+             'email', 'displayName', 'companyId', 'areaId', 'flowId', 'isApprover',
+             'paymentsUser', 'active', 'createdAt', 'createdBy'])
+        && request.resource.data.keys().hasAll([
+             'email', 'displayName', 'companyId', 'areaId', 'flowId', 'isApprover',
+             'paymentsUser', 'active', 'createdAt', 'createdBy'])
+        && str(request.resource.data.email, 3, 200)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid
+        && userFields(request.resource.data);
+
+      // El administrador de personal edita personas de SU empresa (sin moverlas de empresa
+      // ni cambiar quién es administrador).
+      allow update: if resource.data.companyId is string
+        && companyAdmin(resource.data.companyId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'displayName', 'areaId', 'flowId', 'isApprover', 'paymentsUser', 'active'])
+        && userFields(request.resource.data);
+
       // Cada usuario activo puede cambiar solo su propio nombre. Empresa, área,
       // flujo, estado y rol de aprobador los define únicamente el owner.
       allow update: if request.auth != null
@@ -67,7 +106,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])
         && str(request.resource.data.displayName, 1, 100)
         && request.resource.data.displayName.trim() == request.resource.data.displayName;
-      allow create, delete: if false;
+      allow delete: if false;
     }
 
     // ---------- Empresa ----------
@@ -92,7 +131,26 @@ service cloud.firestore {
 
       match /flows/{id} {
         allow read: if member(cid);
-        allow write: if false;
+
+        // El administrador de personal crea y edita los flujos de su empresa.
+        // Quien paga debe ser un usuario de pagos de la misma empresa.
+        function validFlow(d) {
+          return d.keys().hasOnly(['name', 'levels', 'payerUid', 'allApprovers', 'approverNames', 'updatedAt', 'updatedBy'])
+            && str(d.name, 1, 100)
+            && d.levels is list && d.levels.size() >= 1 && d.levels.size() <= 8
+            && d.levels[0].approvers is list && d.levels[0].approvers.size() >= 1
+            && d.allApprovers is list && d.allApprovers.size() <= 200
+            && d.approverNames is map
+            && d.updatedAt == request.time
+            && d.updatedBy == request.auth.uid
+            && (d.payerUid == null
+                || (exists(/databases/$(database)/documents/users/$(d.payerUid))
+                    && get(/databases/$(database)/documents/users/$(d.payerUid)).data.companyId == cid
+                    && get(/databases/$(database)/documents/users/$(d.payerUid)).data.paymentsUser == true));
+        }
+
+        allow create, update: if companyAdmin(cid) && validFlow(request.resource.data);
+        allow delete: if companyAdmin(cid);
       }
 
       // ---------- Rendiciones ----------
@@ -146,7 +204,18 @@ service cloud.firestore {
         allow read: if member(cid)
           && (resource.data.ownerUid == uid()
               || uid() in resource.data.approverUids
-              || uid() in resource.data.currentApprovers);
+              || uid() in resource.data.currentApprovers
+              || profile().companyAdmin == true);
+
+        // Administrador de personal: al cambiar quién paga en un flujo, actualiza quién puede
+        // ver las rendiciones ya enviadas (solo personas que participan en ese flujo).
+        allow update: if companyAdmin(cid)
+          && resource.data.status != 'draft'
+          && resource.data.flowId is string
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approverUids'])
+          && request.resource.data.approverUids is list
+          && request.resource.data.approverUids.hasOnly(
+               resource.data.approverUids.concat(flowDoc(resource.data.flowId).allApprovers));
 
         allow create: if member(cid)
           && request.resource.data.keys().hasOnly([
@@ -297,7 +366,8 @@ service cloud.firestore {
           allow read: if member(cid)
             && (get(reportPath()).data.ownerUid == uid()
                 || uid() in get(reportPath()).data.approverUids
-                || uid() in get(reportPath()).data.currentApprovers);
+                || uid() in get(reportPath()).data.currentApprovers
+                || profile().companyAdmin == true);
 
           allow create, update: if editableByMe() && validItem(request.resource.data);
 

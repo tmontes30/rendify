@@ -12,6 +12,7 @@ interface UserRow {
   flowId?: string | null;
   isApprover?: boolean;
   paymentsUser?: boolean;
+  companyAdmin?: boolean;
   active: boolean;
   disabled: boolean;
   lastSignIn: string | null;
@@ -94,6 +95,7 @@ export function Users() {
                       <div className="row tight">
                         {u.isApprover && <span className="badge info">Aprobador</span>}
                         {u.paymentsUser && <span className="badge approved">💳 Pagos</span>}
+                        {u.companyAdmin && <span className="badge resent">🗂 Admin. personal</span>}
                       </div>
                     </td>
                     {!companyId && <td>{u.orphan ? <span className="badge rejected">Sin empresa</span> : companyName(u.companyId)}</td>}
@@ -141,6 +143,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   const [areaId, setAreaId] = useState(user?.areaId ?? '');
   const [flowId, setFlowId] = useState(user?.flowId ?? '');
   const [paymentsUser, setPaymentsUser] = useState(!!user?.paymentsUser);
+  const [companyAdmin, setCompanyAdmin] = useState(!!user?.companyAdmin);
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +160,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
     setError(null);
     try {
       if (isNew) {
-        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, paymentsUser, password });
+        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, paymentsUser, companyAdmin, password });
         setCreated({ email, password });
         return;
       }
@@ -165,7 +168,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
         await api.post(`/users/${user!.uid}/profile`, { displayName, companyId, areaId: effectiveArea, flowId: flowId || null });
         return onSaved();
       }
-      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null, paymentsUser });
+      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null, paymentsUser, companyAdmin });
       if (password) await api.post(`/users/${user!.uid}/password`, { password });
       onSaved();
     } catch (err) {
@@ -235,6 +238,13 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
           <span>
             <b>💳 Usuario de pagos</b>
             <span className="muted small"> — puede ser “quién paga” en un flujo y en su web verá la sección Pagos para registrar los pagos de las rendiciones aprobadas.</span>
+          </span>
+        </label>
+        <label className="check payments-check">
+          <input type="checkbox" checked={companyAdmin} onChange={(e) => setCompanyAdmin(e.target.checked)} />
+          <span>
+            <b>🗂 Administrador de personal</b>
+            <span className="muted small"> — en su web gestiona las personas y los flujos de aprobación de su empresa (crear usuarios, asignar áreas, flujos y usuarios de pagos).</span>
           </span>
         </label>
         <p className="hint">

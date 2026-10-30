@@ -172,6 +172,8 @@ export interface UserProfile {
   isApprover: boolean;
   /** Usuario de pagos: puede ser "quién paga" en un flujo y registrar pagos en la web. Lo marca el owner. */
   paymentsUser?: boolean;
+  /** Administrador de personal: gestiona personas y flujos de su empresa desde la web. Lo marca el owner. */
+  companyAdmin?: boolean;
   active: boolean;
 }
 
@@ -307,6 +309,22 @@ export function resubmissionInfo(r: {
   };
 }
 
+/**
+ * Arma los campos derivados de un flujo (lo usan el panel del owner y el administrador de personal):
+ * allApprovers = aprobadores de todos los niveles + quien paga; approverNames = nombres para mostrar.
+ */
+export function flowDerived(levels: FlowLevel[], payerUid: string | null, names: Record<string, string>) {
+  const approvers = [...new Set(levels.flatMap((l) => l.approvers))];
+  const allApprovers = [...new Set([...approvers, ...(payerUid ? [payerUid] : [])])];
+  const approverNames = Object.fromEntries(allApprovers.map((u) => [u, names[u] ?? '']));
+  return {
+    levels: levels.map((l, i) => ({ name: l.name, minAmount: i === 0 ? 0 : l.minAmount, approvers: [...new Set(l.approvers)] })),
+    payerUid,
+    allApprovers,
+    approverNames,
+  };
+}
+
 /** Horas que puede esperar una rendición en un nivel antes de avisar al aprobador. */
 export const REMINDER_HOURS = 24;
 
@@ -327,6 +345,7 @@ export const createUserSchema = z.object({
   areaId: id,
   flowId: id.nullable().default(null),
   paymentsUser: z.boolean().default(false),
+  companyAdmin: z.boolean().default(false),
   password: z.string().min(10).max(100),
 });
 
@@ -335,6 +354,7 @@ export const updateUserSchema = z.object({
   areaId: id.optional(),
   flowId: id.nullable().optional(),
   paymentsUser: z.boolean().optional(),
+  companyAdmin: z.boolean().optional(),
 });
 
 export const setPasswordSchema = z.object({ password: z.string().min(10).max(100) });

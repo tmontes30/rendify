@@ -42,12 +42,11 @@ const Ctx = createContext<AuthCtx | null>(null);
 type Loaded = Session | { suspended: string } | null;
 
 async function loadSession(user: User): Promise<Loaded> {
-  // Forzar token nuevo para tomar la empresa vigente asignada por el owner.
-  const token = await user.getIdTokenResult(true);
-  const companyId = token.claims.companyId as string | undefined;
-  if (!companyId) return null;
+  // El perfil users/{uid} es la fuente de verdad (empresa, área, flujo, roles).
   const snap = await getDoc(doc(db, 'users', user.uid));
-  if (!snap.exists() || snap.data().active !== true || snap.data().companyId !== companyId) return null;
+  if (!snap.exists() || snap.data().active !== true) return null;
+  const companyId = snap.data().companyId as string | undefined;
+  if (!companyId) return null;
   const profile = { uid: user.uid, ...snap.data() } as UserProfile;
   // La empresa se lee primero: si el owner la suspendió, lo demás está bloqueado.
   const comp = await getDoc(doc(db, 'companies', companyId));
