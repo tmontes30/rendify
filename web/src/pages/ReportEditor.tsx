@@ -28,7 +28,8 @@ export interface RowState {
   key: string;
   id?: string;
   date: string;
-  categoryId: string;
+  categoryId: string; // id de la lista, 'custom' si se escribió otra, '' si está vacía
+  customCategory: string;
   description: string;
   vendor: string;
   docType: DocType;
@@ -53,11 +54,11 @@ function defaultCurrency(base: Currency): Currency {
 }
 
 export function emptyRow(currency: Currency, categoryId = ''): RowState {
-  return { key: newKey(), date: today(), categoryId, description: '', vendor: '', docType: 'boleta', docNumber: '', currency, amountText: '' };
+  return { key: newKey(), date: today(), categoryId, customCategory: '', description: '', vendor: '', docType: 'boleta', docNumber: '', currency, amountText: '' };
 }
 
 export function rowFromItem(it: Item): RowState {
-  return { key: newKey(), ...it, amountText: fromMinor(it.amount, it.currency) };
+  return { key: newKey(), ...it, customCategory: it.customCategory ?? '', amountText: fromMinor(it.amount, it.currency) };
 }
 
 function defaultTitle() {
@@ -68,7 +69,7 @@ function defaultTitle() {
 /** Valida una fila; devuelve el gasto listo o el mensaje de error. */
 function validateRow(r: RowState, cats: Category[]): { item?: ItemDraft; error?: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return { error: 'Fecha inválida' };
-  if (!cats.some((c) => c.id === r.categoryId)) return { error: 'Elige una categoría' };
+  if (r.categoryId === 'custom' ? !r.customCategory.trim() : !cats.some((c) => c.id === r.categoryId)) return { error: 'Elige o escribe una categoría' };
   if (!r.description.trim()) return { error: 'Falta la descripción' };
   const amount = toMinor(r.amountText, r.currency);
   if (amount == null) return { error: 'Monto inválido' };
@@ -77,6 +78,7 @@ function validateRow(r: RowState, cats: Category[]): { item?: ItemDraft; error?:
       id: r.id,
       date: r.date,
       categoryId: r.categoryId,
+      ...(r.categoryId === 'custom' ? { customCategory: r.customCategory.trim().slice(0, 60) } : {}),
       description: r.description.slice(0, LIMITS.description),
       vendor: r.vendor.slice(0, LIMITS.vendor),
       docType: r.docType,
@@ -125,10 +127,20 @@ export function ReportEditor({
     [categories, rows],
   );
 
+  // Categoría: se elige de la lista o se escribe otra (queda como categoría propia del gasto).
+  const catListId = `cats-${company.id}`;
+  const catText = (r: RowState) => (r.categoryId === 'custom' ? r.customCategory : categories.find((c) => c.id === r.categoryId)?.name ?? '');
+  const fromCatText = (text: string): Partial<RowState> => {
+    const match = categories.find((c) => c.name.toLowerCase() === text.trim().toLowerCase());
+    if (match) return { categoryId: match.id, customCategory: '' };
+    if (!text.trim()) return { categoryId: '', customCategory: '' };
+    return { categoryId: 'custom', customCategory: text };
+  };
+
   // Fija la primera categoría en filas que aún no tienen.
   useEffect(() => {
     const first = activeCats.find((c) => c.active)?.id;
-    if (first) setRows((rs) => (rs.some((r) => !r.categoryId) ? rs.map((r) => (r.categoryId ? r : { ...r, categoryId: first })) : rs));
+    if (first) setRows((rs) => (rs.some((r) => !r.categoryId && !r.customCategory) ? rs.map((r) => (r.categoryId || r.customCategory ? r : { ...r, categoryId: first })) : rs));
   }, [activeCats]);
 
   const results = rows.map((r) => validateRow(r, categories));
@@ -144,7 +156,8 @@ export function ReportEditor({
   const update = (key: string, patch: Partial<RowState>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const addRow = () => {
     const last = rows[rows.length - 1];
-    setRows((rs) => [...rs, emptyRow(last?.currency ?? company.baseCurrency, last?.categoryId ?? activeCats[0]?.id ?? '')]);
+    const next = emptyRow(last?.currency ?? company.baseCurrency, last?.categoryId ?? activeCats[0]?.id ?? '');
+    setRows((rs) => [...rs, { ...next, customCategory: last?.categoryId === 'custom' ? last.customCategory : '' }]);
   };
   const removeRow = (key: string) => setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs));
 
@@ -231,6 +244,11 @@ export function ReportEditor({
           <Link to="/carga-masiva" className="small">¿Muchos gastos? Usa la carga masiva con Excel</Link>
         </div>
 
+        <datalist id={catListId}>
+          {activeCats.filter((c) => c.active).map((c) => (
+            <option key={c.id} value={c.name} />
+          ))}
+        </datalist>
         <div className="expense-list">
           <div className="expense-head" aria-hidden="true">
             <span>Fecha</span>
@@ -252,12 +270,13 @@ export function ReportEditor({
                 </label>
                 <label className="cell">
                   <span className="cell-label">Categoría</span>
-                  <select value={r.categoryId} onChange={(e) => update(r.key, { categoryId: e.target.value })}>
-                    {!r.categoryId && <option value="">Elegir…</option>}
-                    {activeCats.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <input
+                    list={catListId}
+                    placeholder="Elige o escribe…"
+                    value={catText(r)}
+                    onChange={(e) => update(r.key, fromCatText(e.target.value))}
+                    title="Elige de la lista o escribe otra categoría"
+                  />
                 </label>
                 <label className="cell grow">
                   <span className="cell-label">Descripción</span>

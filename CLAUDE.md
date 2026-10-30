@@ -62,7 +62,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
                                     approverUids[uid] (copia de flow.allApprovers al enviar), approvals[Approval],
                                     createdAt, updatedAt, submittedAt, decidedAt, ownerReview{at,comment,decision},
                                     paidAt, payment{uid,name,method,reference,paidOn,comment}, lastNotice{kind,level,at}
-    items/{iid}                     date, categoryId, description, vendor, docType, docNumber, amount (entero, unidad mínima), currency
+    items/{iid}                     date, categoryId ('custom' = escrita), customCategory?, description, vendor, docType, docNumber, amount (entero, unidad mínima), currency
 ```
 
 - **Acceso por perfil (sin claims):** las reglas usan solo `users/{uid}` (`companyId`, `active`, roles); el owner aún pone el claim `{ companyId }` pero no se usa (las cuentas creadas por el administrador de personal desde la web no lo tienen). Deshabilitar o mover de empresa corta el acceso al instante.
@@ -94,6 +94,8 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Flujo editado con rendiciones en curso:** al guardar un flujo (panel: `reroutePending`; web admin: en `saveFlow`) las rendiciones `pending` de ese flujo se reacomodan con `rerouteToFlow` (shared): parten en `startLevel` del dueño y saltan niveles ya aprobados en la ronda actual; si no queda nivel, esperan al owner. Reglas: el admin de personal solo puede dejar `currentLevel/currentApprovers` consistentes con el flujo vigente. El avance en la web muestra siempre `currentApprovers` y avisa si el flujo cambió sin reacomodar.
 - **Tiempo real:** la web usa `onSnapshot` (`watchMyReports`, `watchPendingForMe`, `watchApproverHistory`, `watchPayments`, `watchReportChanges` en `data.ts`): Mis rendiciones, Por aprobar, Pagos, los contadores del menú y la rendición abierta se actualizan solos; el menú muestra un aviso (toast) cuando llega algo nuevo para aprobar o pagar. El panel del owner recarga cada sección al volver a la pestaña (`useLoad`) y revisa el contador de notificaciones cada 30 s.
 - **Datos de cada persona:** obligatorios nombre, **RUT** (validado con dígito verificador, guardado como `12345678-9`, único por empresa; `normalizeRut/isValidRut/formatRut` en shared) y **cargo** (`position`); el **área es opcional** (`areaId: null` = "Sin área"). Las reglas exigen RUT y cargo al crear desde la web; perfiles antiguos sin esos campos siguen funcionando.
+- **Categoría escrita por el usuario:** en el editor la categoría es un campo con sugerencias (`<datalist>`); si el texto no coincide con una categoría de la lista se guarda `categoryId: 'custom'` + `customCategory`. Igual en la carga masiva (la validación de esa columna en Excel ya no bloquea). Mostrar siempre con `categoryLabel(item, nameOf)`. En el panel aparecen como "(escrita)".
+- **Funcionamiento sin el PC del owner:** la web (GitHub Pages) y Firebase funcionan 24/7; el PC solo se necesita para usar el panel del owner.
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.

@@ -8,6 +8,7 @@ import {
   formatTotals,
   nextRequiredLevel,
   resubmissionInfo,
+  categoryLabel,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
@@ -136,7 +137,7 @@ export function ReportPage() {
               {items.map((it) => (
                 <tr key={it.id}>
                   <td className="small">{it.date}</td>
-                  <td>{catName(it.categoryId)}</td>
+                  <td>{categoryLabel(it, catName)}</td>
                   <td>
                     {it.description}
                     {it.vendor && <div className="muted small">{it.vendor}</div>}

@@ -108,6 +108,7 @@ export async function saveReport(
   const clean = (r: ItemDraft): ItemInput => ({
     date: r.date,
     categoryId: r.categoryId,
+    ...(r.categoryId === 'custom' && r.customCategory ? { customCategory: r.customCategory.trim().slice(0, 60) } : {}),
     description: r.description.trim(),
     vendor: r.vendor.trim(),
     docType: r.docType,

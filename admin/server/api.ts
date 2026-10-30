@@ -983,7 +983,7 @@ api.get(
       addTo(byCompany, r.companyId, r.currency, r.amount);
       addTo(byArea, `${r.companyId}/${r.report.areaId ?? 'sin-area'}`, r.currency, r.amount);
       addTo(byMonth, r.date.slice(0, 7), r.currency, r.amount);
-      addTo(byCategory, `${r.companyId}/${r.categoryId}`, r.currency, r.amount);
+      addTo(byCategory, r.categoryId === 'custom' ? `${r.companyId}/custom:${r.customCategory ?? 'Otra'}` : `${r.companyId}/${r.categoryId}`, r.currency, r.amount);
       addTo(byUser, r.report.ownerUid, r.currency, r.amount);
       total[r.currency] = (total[r.currency] ?? 0) + r.amount;
     }
@@ -1010,7 +1010,10 @@ api.get(
       names: {
         companies: Object.fromEntries(companies.map((c) => [c.id, c.name])),
         areas: { ...Object.fromEntries([...byArea.keys()].map((k) => [k, 'Sin área'])), ...areaNames },
-        categories: catNames,
+        categories: {
+          ...catNames,
+          ...Object.fromEntries([...byCategory.keys()].filter((k) => k.includes('/custom:')).map((k) => [k, `${k.split('/custom:')[1]} (escrita)`])),
+        },
         users: Object.fromEntries(users.map((u) => [u.id, u.name])),
       },
       usersCount: { total: scopedUsers.length, active: scopedUsers.filter((u) => u.active).length },
@@ -1057,7 +1060,7 @@ api.get(
           r.report.ownerName,
           areaNames[`${r.companyId}/${r.report.areaId}`] ?? r.report.areaId,
           r.date,
-          catNames[`${r.companyId}/${r.categoryId}`] ?? r.categoryId,
+          r.categoryId === 'custom' ? r.customCategory ?? 'Otra' : catNames[`${r.companyId}/${r.categoryId}`] ?? r.categoryId,
           r.description,
           r.vendor,
           DOC_TYPE_LABELS[r.docType] ?? r.docType,

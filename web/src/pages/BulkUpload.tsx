@@ -84,7 +84,7 @@ export function BulkUpload() {
       // Nota (comentario) en cada encabezado explicando qué va en la columna.
       const notes = [
         'OBLIGATORIO. Fecha del gasto, formato dd-mm-aaaa. Ej: 15-10-2026',
-        'OBLIGATORIO. Elige de la lista desplegable.',
+        'OBLIGATORIO. Elige de la lista desplegable o escribe otra si no está.',
         'OBLIGATORIO. Qué se compró o pagó. Ej: Taxi al aeropuerto',
         'Opcional. Nombre o RUT del comercio.',
         'Opcional. Elige de la lista: Boleta, Factura u Otro. Si lo dejas vacío se usa Boleta.',
@@ -128,8 +128,8 @@ export function BulkUpload() {
         };
         ws.getCell(r, 2).dataValidation = {
           type: 'list', allowBlank: true, formulae: [`${LISTS}!$A$1:$A$${nCat}`],
-          showInputMessage: true, promptTitle: 'Categoría', prompt: 'Elige de la lista (flecha a la derecha de la celda).',
-          showErrorMessage: true, errorTitle: 'Categoría', error: 'Elige una categoría de la lista.',
+          showInputMessage: true, promptTitle: 'Categoría', prompt: 'Elige de la lista o escribe otra si no está.',
+          showErrorMessage: false,
         };
         ws.getCell(r, 3).dataValidation = {
           type: 'textLength', operator: 'lessThanOrEqual', allowBlank: true, formulae: [500],
@@ -160,7 +160,7 @@ export function BulkUpload() {
         `1. Ve a la hoja "${SHEET}". La fila 2 (amarilla) es un EJEMPLO: muestra cómo llenar cada columna. Puedes dejarla tal cual o borrarla; no se carga.`,
         `2. Escribe tus gastos desde la fila 3 hacia abajo: una fila por cada gasto (máximo ${MAX_ROWS}).`,
         '3. Obligatorios: Fecha, Categoría, Descripción, Moneda y Monto. Opcionales: Proveedor, Tipo documento y N° documento.',
-        '4. Categoría, Tipo documento y Moneda se eligen desde la lista desplegable (flecha a la derecha de la celda).',
+        '4. Tipo documento y Moneda se eligen desde la lista desplegable. En Categoría puedes elegir de la lista o escribir otra si no está.',
         '5. Fecha en formato dd-mm-aaaa (ej: 15-10-2026). Monto solo el número, sin $ ni puntos de miles (ej: 15000 o 12,50).',
         '6. Pasa el mouse sobre los títulos de las columnas para ver una ayuda de cada una.',
         '7. No cambies los títulos de las columnas ni el nombre de las hojas.',
@@ -392,7 +392,8 @@ function parseRow(line: number, cells: unknown[], categories: Category[]): Parse
 
   const catText = text(vCat);
   const cat = categories.find((c) => norm(c.name) === norm(catText));
-  if (!cat) errors.push(catText ? `Categoría "${catText}" no existe` : 'Falta categoría');
+  // Si no está en la lista, se acepta como categoría escrita por el usuario.
+  if (!catText) errors.push('Falta categoría');
 
   const description = text(vDesc);
   if (!description) errors.push('Falta descripción');
@@ -420,14 +421,15 @@ function parseRow(line: number, cells: unknown[], categories: Category[]): Parse
 
   const preview = {
     date: date ?? text(vDate),
-    category: cat?.name ?? catText,
+    category: cat?.name ?? (catText ? `${catText} (nueva)` : ''),
     description,
     amount: amount != null && currency ? formatMoney(amount, currency) : text(vAmt),
   };
   if (errors.length) return { line, errors, preview };
 
   const row: RowState = {
-    ...emptyRow(currency!, cat!.id),
+    ...emptyRow(currency!, cat ? cat.id : 'custom'),
+    customCategory: cat ? '' : catText.slice(0, 60),
     date: date!,
     description: description.slice(0, LIMITS.description),
     vendor: text(vVendor).slice(0, LIMITS.vendor),

@@ -408,8 +408,11 @@ service cloud.firestore {
 
           function validItem(d) {
             return d.keys().hasOnly([
-                     'date', 'categoryId', 'description', 'vendor', 'docType',
+                     'date', 'categoryId', 'customCategory', 'description', 'vendor', 'docType',
                      'docNumber', 'amount', 'currency'])
+              // Categoría escrita por el usuario: categoryId 'custom' + texto.
+              && (d.categoryId != 'custom' || str(d.get('customCategory', ''), 1, 60))
+              && (d.categoryId == 'custom' || !('customCategory' in d))
               && d.keys().hasAll([
                      'date', 'categoryId', 'description', 'vendor', 'docType',
                      'docNumber', 'amount', 'currency'])

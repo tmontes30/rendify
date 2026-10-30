@@ -5,6 +5,7 @@ import {
   formatMoney,
   formatTotals,
   resubmissionInfo,
+  categoryLabel,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   type Payment,
@@ -196,7 +197,7 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
                 {data.items.map((it) => (
                   <tr key={it.id}>
                     <td className="small">{it.date}</td>
-                    <td>{categoryName(it.categoryId)}</td>
+                    <td>{categoryLabel(it, categoryName)}</td>
                     <td>
                       {it.description}
                       {it.vendor && <div className="muted small">{it.vendor}</div>}

@@ -149,6 +149,11 @@ describe('crear y enviar', () => {
     await assertFails(setDoc(ref, { ...item, amount: 1.5 }));
     await assertFails(setDoc(ref, { ...item, currency: 'XXX' }));
     await assertFails(setDoc(ref, { ...item, hack: true }));
+    // Categoría escrita por el usuario
+    await assertSucceeds(setDoc(ref, { ...item, categoryId: 'custom', customCategory: 'Lavandería' }));
+    await assertFails(setDoc(ref, { ...item, categoryId: 'custom' }));
+    await assertFails(setDoc(ref, { ...item, categoryId: 'custom', customCategory: '' }));
+    await assertFails(setDoc(ref, { ...item, customCategory: 'Otra' }));
   });
   it('otro trabajador no ve ni edita', async () => {
     await seed('r1', u.worker, {});

@@ -5,6 +5,7 @@ import {
   formatMoney,
   formatTotals,
   resubmissionInfo,
+  categoryLabel,
   PAYMENT_METHOD_LABELS,
   type Approval,
   type Category,
@@ -214,7 +215,7 @@ function ItemsMini({ items, categories }: { items: Item[]; categories: Category[
       {items.map((it) => (
         <div key={it.id} className="items-mini-row">
           <span className="muted small">{it.date}</span>
-          <span className="small">{cat(it.categoryId)}</span>
+          <span className="small">{categoryLabel(it, cat)}</span>
           <span className="items-mini-desc">{it.description}</span>
           <span className="num strong">{formatMoney(it.amount, it.currency)}</span>
         </div>

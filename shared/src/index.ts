@@ -251,10 +251,15 @@ export interface Attachment {
 
 export const MAX_ATTACHMENTS = 10;
 
+/** categoryId de los gastos con una categoría escrita por el usuario (no está en la lista). */
+export const CUSTOM_CATEGORY = 'custom';
+
 export interface Item {
   id: string;
   date: string; // YYYY-MM-DD
   categoryId: string;
+  /** Categoría escrita por el usuario cuando categoryId === CUSTOM_CATEGORY. */
+  customCategory?: string;
   description: string;
   vendor: string;
   docType: DocType;
@@ -373,6 +378,11 @@ export function isSpecialProfile(u: { paymentsUser?: boolean; companyAdmin?: boo
 
 /** Horas que puede esperar una rendición en un nivel antes de avisar al aprobador. */
 export const REMINDER_HOURS = 24;
+
+/** Nombre a mostrar de la categoría de un gasto (incluye las escritas por el usuario). */
+export function categoryLabel(it: { categoryId: string; customCategory?: string }, nameOf: (id: string) => string) {
+  return it.categoryId === CUSTOM_CATEGORY && it.customCategory ? it.customCategory : nameOf(it.categoryId);
+}
 
 // ---------- RUT chileno ----------
 /** Deja el RUT como 12345678-9 (sin puntos, DV en mayúscula) o null si no tiene forma de RUT. */
