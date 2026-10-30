@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   CURRENCIES,
@@ -137,11 +137,15 @@ export function ReportEditor({
     return { categoryId: 'custom', customCategory: text };
   };
 
-  // Fija la primera categoría en filas que aún no tienen.
+  // Al cargar las categorías (una sola vez), proponer la primera en las filas vacías.
+  // Después no se vuelve a rellenar: si el usuario borra la categoría, queda vacía para que escriba.
+  const defaultsApplied = useRef(false);
   useEffect(() => {
-    const first = activeCats.find((c) => c.active)?.id;
-    if (first) setRows((rs) => (rs.some((r) => !r.categoryId && !r.customCategory) ? rs.map((r) => (r.categoryId || r.customCategory ? r : { ...r, categoryId: first })) : rs));
-  }, [activeCats]);
+    if (defaultsApplied.current || !categories.length) return;
+    defaultsApplied.current = true;
+    const first = categories.find((c) => c.active)?.id;
+    if (first) setRows((rs) => rs.map((r) => (r.categoryId || r.customCategory ? r : { ...r, categoryId: first })));
+  }, [categories]);
 
   const results = rows.map((r) => validateRow(r, categories));
   const valid = results.map((r) => r.item).filter((x): x is ItemDraft => !!x);
@@ -275,6 +279,7 @@ export function ReportEditor({
                     placeholder="Elige o escribe…"
                     value={catText(r)}
                     onChange={(e) => update(r.key, fromCatText(e.target.value))}
+                    onFocus={(e) => e.target.select()}
                     title="Elige de la lista o escribe otra categoría"
                   />
                 </label>
