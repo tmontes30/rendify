@@ -338,6 +338,14 @@ export function flowDerived(levels: FlowLevel[], payerUid: string | null, names:
   };
 }
 
+/**
+ * Perfiles especiales (usuario de pagos, administrador de personal): no rinden gastos ni
+ * aprueban, así que nunca forman parte de un flujo como trabajadores o aprobadores.
+ */
+export function isSpecialProfile(u: { paymentsUser?: boolean; companyAdmin?: boolean } | undefined | null) {
+  return !!u && (!!u.paymentsUser || !!u.companyAdmin);
+}
+
 /** Horas que puede esperar una rendición en un nivel antes de avisar al aprobador. */
 export const REMINDER_HOURS = 24;
 

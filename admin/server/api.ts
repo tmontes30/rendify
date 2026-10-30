@@ -6,6 +6,7 @@ import {
   CURRENCY_CODES,
   DEFAULT_AREAS,
   DEFAULT_CATEGORIES,
+  isSpecialProfile,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
@@ -206,7 +207,7 @@ api.get(
         total: users.size,
         active: active.length,
         approvers: active.filter((u) => u.data().isApprover).length,
-        withoutFlow: active.filter((u) => !u.data().flowId).map((u) => u.data().displayName as string),
+        withoutFlow: active.filter((u) => !u.data().flowId && !isSpecialProfile(u.data())).map((u) => u.data().displayName as string),
       },
       flows: flows.docs.map((f) => ({
         id: f.id,
@@ -308,6 +309,11 @@ async function buildFlow(cid: string, raw: unknown) {
     if (!d || d.companyId !== cid) throw new HttpError(400, 'Los aprobadores y quien paga deben ser usuarios de esta empresa.');
     names[s.id] = d.displayName;
   }
+  for (const s of snaps) {
+    if (approverUids.includes(s.id) && isSpecialProfile(s.data())) {
+      throw new HttpError(400, `${s.data()!.displayName} es usuario de pagos o administrador de personal: no puede ser aprobador.`);
+    }
+  }
   if (body.payerUid) {
     const p = snaps.find((x) => x.id === body.payerUid)?.data();
     if (!p?.paymentsUser) throw new HttpError(400, 'Quien paga debe tener marcada la casilla “Usuario de pagos”.');
@@ -334,7 +340,9 @@ async function applyMembers(cid: string, fid: string, members: string[] | undefi
   const batch = db.batch();
   for (const u of users.docs) {
     const d = u.data();
-    if (want.has(u.id) && d.flowId !== fid && !d.paymentsUser) batch.update(u.ref, { flowId: fid });
+    if (isSpecialProfile(d)) {
+      if (d.flowId) batch.update(u.ref, { flowId: null });
+    } else if (want.has(u.id) && d.flowId !== fid) batch.update(u.ref, { flowId: fid });
     else if (!want.has(u.id) && d.flowId === fid) batch.update(u.ref, { flowId: null });
   }
   await batch.commit();
@@ -346,7 +354,7 @@ async function assignFlowToApprovers(cid: string, fid: string, approvers: string
   const batch = db.batch();
   let n = 0;
   for (const s of snaps) {
-    if (s.exists && s.data()!.companyId === cid && !s.data()!.flowId) {
+    if (s.exists && s.data()!.companyId === cid && !s.data()!.flowId && !isSpecialProfile(s.data())) {
       batch.update(s.ref, { flowId: fid });
       n++;
     }
@@ -512,7 +520,7 @@ api.post(
         displayName: body.displayName,
         companyId: body.companyId,
         areaId: body.areaId,
-        flowId: body.flowId,
+        flowId: body.paymentsUser || body.companyAdmin ? null : body.flowId,
         isApprover: false,
         paymentsUser: body.paymentsUser,
         companyAdmin: body.companyAdmin,
@@ -565,7 +573,8 @@ api.patch(
     const cid = snap.data()!.companyId as string;
     await assertRefs(cid, body.areaId, body.flowId);
     if (body.displayName) await auth.updateUser(req.params.uid, { displayName: body.displayName });
-    await ref.update({ ...body });
+    const becomesSpecial = isSpecialProfile({ ...(snap.data() as { paymentsUser?: boolean; companyAdmin?: boolean }), ...body });
+    await ref.update({ ...body, ...(becomesSpecial ? { flowId: null } : {}) });
     // Si cambió el nombre, actualizarlo en los flujos donde aprueba.
     if (body.displayName && snap.data()!.isApprover) {
       const flows = await company(cid).collection('flows').where('allApprovers', 'array-contains', req.params.uid).get();
@@ -1408,6 +1417,21 @@ api.get(
       page: 'notificaciones',
       items: soonBills.map((b) => `${b.companyName}: vence en ${b.daysLeft} día(s)`),
     });
+    const specialUids = new Set(scopedUsers.filter((u) => u.paymentsUser || u.companyAdmin).map((u) => u.uid));
+    const flowsSpecial = flows.flatMap((f) =>
+      ((f.levels ?? []) as { name: string; approvers: string[] }[]).flatMap((l) =>
+        l.approvers.filter((a) => specialUids.has(a)).map((a) => `${companyName.get(f.cid)}: “${f.name}” › ${l.name} → ${nameOf(a)}`),
+      ),
+    );
+    push({
+      id: 'flowSpecialApprover',
+      severity: 'warning',
+      title: 'Perfiles especiales como aprobadores',
+      detail: 'Un usuario de pagos o administrador de personal figura como aprobador. Reemplázalo en el flujo o quítale ese perfil.',
+      count: flowsSpecial.length,
+      page: 'flujos',
+      items: flowsSpecial,
+    });
     const flowsNoPayer = flows.filter((f) => !f.payerUid);
     push({
       id: 'flowNoPayer',
@@ -1429,7 +1453,7 @@ api.get(
       page: 'flujos',
       items: payUsersUnassigned.map((u) => `${companyName.get(u.companyId)}: ${u.displayName}`),
     });
-    const noFlow = activeUsers.filter((u) => !u.flowId && !u.paymentsUser);
+    const noFlow = activeUsers.filter((u) => !u.flowId && !u.paymentsUser && !u.companyAdmin);
     push({
       id: 'usersNoFlow',
       severity: 'warning',

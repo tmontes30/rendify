@@ -2,7 +2,7 @@
 // Las reglas de Firestore limitan todo a la empresa del administrador.
 import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { flowDerived, type Area, type Flow, type FlowLevel, type UserProfile } from '@rendiciones/shared';
+import { flowDerived, isSpecialProfile, type Area, type Flow, type FlowLevel, type UserProfile } from '@rendiciones/shared';
 import { auth, createAccount, db } from './firebase';
 import type { Session } from './auth';
 
@@ -95,12 +95,14 @@ export async function saveFlow(
   for (const p of people) {
     // Trabajadores elegidos para este flujo; quienes lo tenían y ya no están, quedan sin flujo.
     let flowIdNew = p.flowId ?? null;
-    if (want && !p.paymentsUser) {
+    // Perfiles especiales (pagos, administrador de personal) nunca quedan en un flujo.
+    if (isSpecialProfile(p)) flowIdNew = null;
+    else if (want) {
       if (want.has(p.uid)) flowIdNew = ref.id;
       else if (flowIdNew === ref.id) flowIdNew = null;
     }
     // Aprobadores sin flujo quedan en este (para sus propias rendiciones).
-    if (!flowIdNew && !p.paymentsUser && levelApprovers.has(p.uid)) flowIdNew = ref.id;
+    if (!flowIdNew && !isSpecialProfile(p) && levelApprovers.has(p.uid)) flowIdNew = ref.id;
     const isApprover = approversAll.has(p.uid);
     if (flowIdNew !== (p.flowId ?? null) || isApprover !== !!p.isApprover || p.paymentsUser === undefined) {
       if (flowIdNew !== (p.flowId ?? null)) assigned++;

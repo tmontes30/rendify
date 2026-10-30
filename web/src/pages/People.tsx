@@ -105,7 +105,7 @@ export function People() {
                     </div>
                   </td>
                   <td>{areaName(p.areaId)}</td>
-                  <td>{p.paymentsUser ? <span className="muted small">No rinde</span> : flowName(p.flowId) ?? <span className="badge pending">Sin flujo</span>}</td>
+                  <td>{p.paymentsUser || p.companyAdmin ? <span className="muted small">No rinde</span> : flowName(p.flowId) ?? <span className="badge pending">Sin flujo</span>}</td>
                   <td>
                     <span className={`badge ${p.active ? 'approved' : 'rejected'}`}>{p.active ? 'Activo' : 'Desactivado'}</span>
                   </td>
@@ -169,7 +169,7 @@ function PersonModal({
     setBusy(true);
     setError(null);
     try {
-      const data = { displayName, areaId, flowId: paymentsUser ? null : flowId || null, paymentsUser };
+      const data = { displayName, areaId, flowId: paymentsUser || person?.companyAdmin ? null : flowId || null, paymentsUser };
       if (isNew) {
         await createPerson(session, email, password, data);
         setCreated({ email: email.trim().toLowerCase(), password });
@@ -222,8 +222,8 @@ function PersonModal({
           </div>
           <div className="field">
             <label htmlFor="pf">Flujo de aprobación</label>
-            <select id="pf" value={paymentsUser ? '' : flowId} disabled={paymentsUser} onChange={(e) => setFlowId(e.target.value)}>
-              <option value="">{paymentsUser ? 'No rinde gastos' : 'Sin flujo (no puede enviar)'}</option>
+            <select id="pf" value={paymentsUser || person?.companyAdmin ? '' : flowId} disabled={paymentsUser || !!person?.companyAdmin} onChange={(e) => setFlowId(e.target.value)}>
+              <option value="">{paymentsUser || person?.companyAdmin ? 'No rinde gastos (perfil especial)' : 'Sin flujo (no puede enviar)'}</option>
               {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>

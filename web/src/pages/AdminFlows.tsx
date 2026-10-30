@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { LIMITS, formatMoney, fromMinor, toMinor, type Area, type Flow } from '@rendiciones/shared';
+import { LIMITS, formatMoney, fromMinor, isSpecialProfile, toMinor, type Area, type Flow } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { adminError, deleteFlow, listAreas, listFlows, listPeople, saveFlow, type Person } from '../adminData';
 
@@ -29,7 +29,9 @@ export function AdminFlows() {
   }, [load]);
 
   const nameOf = (f: Flow, uid: string) => f.approverNames?.[uid] || people.find((p) => p.uid === uid)?.displayName || 'Persona';
-  const usersIn = (fid: string) => people.filter((p) => p.flowId === fid).length;
+  // Usuarios de pagos y administradores de personal no rinden ni aprueban.
+  const workersOf = (fid: string) => people.filter((p) => p.flowId === fid && !isSpecialProfile(p));
+  const usersIn = (fid: string) => workersOf(fid).length;
 
   async function remove(f: Flow) {
     if (!confirm(`¿Eliminar el flujo "${f.name}"?`)) return;
@@ -73,7 +75,7 @@ export function AdminFlows() {
             <div className="flow-chain">
               <div className="flow-node start">
                 <div className="flow-node-title">Trabajadores ({usersIn(f.id)})</div>
-                <WorkerNames names={people.filter((p) => p.flowId === f.id).map((p) => p.displayName)} />
+                <WorkerNames names={workersOf(f.id).map((p) => p.displayName)} />
               </div>
               {f.levels.map((l, i) => (
                 <div key={i} className="flow-step">
@@ -140,7 +142,7 @@ function FlowEditor({
   const base = company.baseCurrency;
   const [name, setName] = useState(flow?.name ?? '');
   const [payerUid, setPayerUid] = useState(flow?.payerUid ?? '');
-  const [members, setMembers] = useState<string[]>(flow ? people.filter((p) => p.flowId === flow.id).map((p) => p.uid) : []);
+  const [members, setMembers] = useState<string[]>(flow ? people.filter((p) => p.flowId === flow.id && !isSpecialProfile(p)).map((p) => p.uid) : []);
   // Orden de la cadena (0 = primero en revisar); se muestra al revés (arriba el más importante).
   const [levels, setLevels] = useState<LevelDraft[]>(
     flow?.levels.map((l) => ({ key: newKey(), name: l.name, minText: l.minAmount ? fromMinor(l.minAmount, base) : '', approvers: l.approvers })) ?? [
@@ -150,7 +152,7 @@ function FlowEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const last = levels.length - 1;
-  const approverPool = people.filter((p) => !p.paymentsUser);
+  const approverPool = people.filter((p) => !isSpecialProfile(p));
   const payers = people.filter((p) => p.paymentsUser || p.uid === payerUid);
 
   const update = (i: number, patch: Partial<LevelDraft>) => setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));

@@ -100,7 +100,17 @@ export function Users() {
                     </td>
                     {!companyId && <td>{u.orphan ? <span className="badge rejected">Sin empresa</span> : companyName(u.companyId)}</td>}
                     {companyId && <td>{areaName(u.areaId)}</td>}
-                    {companyId && <td>{u.flowId ? flowName(u.flowId) : <span className="badge pending">Sin flujo</span>}</td>}
+                    {companyId && (
+                      <td>
+                        {u.paymentsUser || u.companyAdmin ? (
+                          <span className="muted small">No rinde</span>
+                        ) : u.flowId ? (
+                          flowName(u.flowId)
+                        ) : (
+                          <span className="badge pending">Sin flujo</span>
+                        )}
+                      </td>
+                    )}
                     <td className="hide-sm small">{u.lastSignIn ? fmtDateTime(new Date(u.lastSignIn).toISOString()) : 'Nunca'}</td>
                     <td>
                       <span className={`badge ${enabled ? 'approved' : 'rejected'}`}>{enabled ? 'Activo' : 'Deshabilitado'}</span>
@@ -160,7 +170,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
     setError(null);
     try {
       if (isNew) {
-        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: flowId || null, paymentsUser, companyAdmin, password });
+        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin, password });
         setCreated({ email, password });
         return;
       }
@@ -168,7 +178,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
         await api.post(`/users/${user!.uid}/profile`, { displayName, companyId, areaId: effectiveArea, flowId: flowId || null });
         return onSaved();
       }
-      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: flowId || null, paymentsUser, companyAdmin });
+      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin });
       if (password) await api.post(`/users/${user!.uid}/password`, { password });
       onSaved();
     } catch (err) {
@@ -227,8 +237,8 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
           </div>
           <div className="field">
             <label htmlFor="flow">Flujo de aprobación</label>
-            <select id="flow" value={flowId} onChange={(e) => setFlowId(e.target.value)}>
-              <option value="">Sin flujo (no puede enviar)</option>
+            <select id="flow" value={paymentsUser || companyAdmin ? '' : flowId} disabled={paymentsUser || companyAdmin} onChange={(e) => setFlowId(e.target.value)}>
+              <option value="">{paymentsUser || companyAdmin ? 'No rinde gastos (perfil especial)' : 'Sin flujo (no puede enviar)'}</option>
               {flows.data?.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>

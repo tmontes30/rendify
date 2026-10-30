@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { LIMITS, formatMoney, fromMinor, toMinor, type Currency, type Flow } from '@rendiciones/shared';
+import { LIMITS, formatMoney, fromMinor, isSpecialProfile, toMinor, type Currency, type Flow } from '@rendiciones/shared';
 import { api } from '../api';
 import { Modal, NeedsCompany, PageHeader } from '../components';
 import { useCatalog, useCompany, useLoad } from '../hooks';
@@ -12,6 +12,7 @@ interface UserLite {
   areaId: string;
   flowId: string | null;
   paymentsUser?: boolean;
+  companyAdmin?: boolean;
 }
 
 export function Flows() {
@@ -40,7 +41,9 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
   const [flash, setFlash] = useState<string | null>(null);
 
   const nameOf = (f: Flow, uid: string) => f.approverNames?.[uid] ?? users.data?.find((u) => u.uid === uid)?.displayName ?? uid;
-  const usersIn = (fid: string) => users.data?.filter((u) => u.flowId === fid).length ?? 0;
+  // Usuarios de pagos y administradores de personal no rinden ni aprueban: no cuentan en los flujos.
+  const workersOf = (fid: string) => (users.data ?? []).filter((u) => u.flowId === fid && !isSpecialProfile(u));
+  const usersIn = (fid: string) => workersOf(fid).length;
 
   async function remove(f: Flow) {
     if (!confirm(`¿Eliminar el flujo "${f.name}"?`)) return;
@@ -81,7 +84,7 @@ function FlowsFor({ cid, title }: { cid: string; title: string }) {
             <div className="flow-chain">
               <div className="flow-node start">
                 <div className="flow-node-title">Trabajadores ({usersIn(f.id)})</div>
-                <WorkerNames names={(users.data ?? []).filter((u) => u.flowId === f.id).map((u) => u.displayName)} />
+                <WorkerNames names={workersOf(f.id).map((u) => u.displayName)} />
               </div>
               {f.levels.map((l, i) => (
                 <div key={i} className="flow-step">
@@ -169,7 +172,7 @@ function FlowModal({
     ],
   );
   const [payerUid, setPayerUid] = useState<string>(flow?.payerUid ?? '');
-  const [members, setMembers] = useState<string[]>(flow ? users.filter((u) => u.flowId === flow.id).map((u) => u.uid) : []);
+  const [members, setMembers] = useState<string[]>(flow ? users.filter((u) => u.flowId === flow.id && !isSpecialProfile(u)).map((u) => u.uid) : []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -284,7 +287,7 @@ function FlowModal({
                     />
                   </div>
                 </div>
-                <ApproverPicker users={users} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
+                <ApproverPicker users={users.filter((u) => !isSpecialProfile(u))} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
               </div>
             </div>
           ))}
@@ -301,7 +304,7 @@ function FlowModal({
             <span className="muted small">Quienes rinden gastos por este flujo. Cada persona usa un solo flujo.</span>
           </div>
           <MemberPicker
-            users={users.filter((u) => !u.paymentsUser)}
+            users={users.filter((u) => !isSpecialProfile(u))}
             currentFlowId={flow?.id ?? null}
             flowName={flowName}
             areaName={areaName}
