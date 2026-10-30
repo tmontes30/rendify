@@ -1,6 +1,6 @@
-# Rendiciones — contexto del proyecto
+# Rendify — contexto del proyecto
 
-Plataforma de **rendición de gastos multiempresa**. El owner (Tomás Montes, `tmontes30`) vende el servicio a empresas (EuroCapital, Agroplas, Montes Service…). Cada empresa tiene sus usuarios, que rinden gastos y los aprueban en **flujos por niveles**. Todo lo administra el owner desde un **panel local** en su PC.
+**Rendify**: plataforma de **rendición de gastos multiempresa** (nombre comercial elegido por el owner). El owner (Tomás Montes, `tmontes30`) vende el servicio a empresas (EuroCapital, Agroplas, Montes Service…). Cada empresa tiene sus usuarios, que rinden gastos y los aprueban en **flujos por niveles**. Todo lo administra el owner desde un **panel local** en su PC.
 
 Idioma del producto y del código (textos, comentarios, mensajes): **español**. Moneda base habitual: CLP.
 
@@ -29,7 +29,7 @@ firebase/        firestore.rules + índices + tests de reglas (vitest + emulador
 
 ## Despliegue y entorno
 
-- **Web pública:** https://cavedevz.com/Rendiciones-Empresas/ (GitHub Pages del repo `tmontes30/Rendiciones-Empresas`, dominio propio del usuario). Cada push a `main` la publica. Los secretos `VITE_FIREBASE_*` están en GitHub Actions.
+- **Web pública:** https://cavedevz.com/rendify/ (GitHub Pages del repo `tmontes30/rendify`, dominio propio del usuario). Cada push a `main` la publica. Los secretos `VITE_FIREBASE_*` están en GitHub Actions.
 - **Firebase:** proyecto `rendiciones-aa911`, plan **Spark (gratis)**, Firestore en `southamerica-west1`, Auth solo email/contraseña, contraseñas mín. 10, protección contra enumeración de correos, dominios autorizados: `localhost`, `127.0.0.1`, `cavedevz.com`, `rendiciones-aa911.firebaseapp.com`.
 - **Clave Admin SDK:** `C:/Users/catal/secretos/rendiciones-aa911-admin.json` (fuera del repo y de OneDrive). Ruta configurada en `admin/config.local.json` (gitignored). **Nunca** leerla, mostrarla ni subirla.
 - **Windows:** Node en `C:\Program Files\nodejs` (en Git Bash: `export PATH="/c/Program Files/nodejs:$PATH"`). Java 21 en `C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot` (para emuladores: exportar `JAVA_HOME` y agregar `$JAVA_HOME/bin` al PATH).
@@ -90,6 +90,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Perfiles especiales** (`isSpecialProfile`: `paymentsUser` o `companyAdmin`): nunca están en un flujo como trabajadores ni aprobadores (no se les asigna `flowId`, no aparecen en los selectores ni en el esquema, el servidor rechaza un flujo que los tenga como aprobadores). El usuario de pagos solo aparece como "quién paga". El Panel alerta si algún flujo antiguo los tiene como aprobadores.
 - **Indicador de carga:** `shared/Busy.tsx` → `useGlobalBusy(msg)` (reemplaza `useState(false)` de los estados busy y muestra el logo animado en el centro), `busy.run(msg, fn)`, `<BusyOverlay/>` montado en ambas apps (gris en el panel) y `<LogoLoader/>` en lugar de los textos "Cargando…".
 - Con trabajadores elegidos explícitamente en un flujo, ya no se asigna automáticamente el flujo a sus aprobadores (eso hacía que no se pudiera quitar a un trabajador que también aprueba).
+- **Links por empresa:** `https://cavedevz.com/rendify/<cid>/` (repo GitHub `tmontes30/rendify`; Vite base `/rendify/`; el build copia `index.html` a `404.html` para que GitHub Pages sirva cualquier subruta). `web/src/companyPath.ts` lee la empresa de la dirección; el ingreso muestra su nombre leyendo `publicCompanies/{cid}` (`{name}`, legible sin sesión con `get`, no se puede listar ni escribir; el panel lo sincroniza en `syncPublicCompanies`). Tras iniciar sesión, la dirección se reescribe al `cid` del usuario. Los correos del panel usan `${webUrl}${cid}/#/r/<id>`; las tarjetas de Empresas muestran y copian el link.
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.
@@ -101,7 +102,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 ## Seguridad (no romper)
 
 - `firebase/firestore.rules` es la barrera real de la web: deny por defecto, aislamiento por empresa, validación de campos/tipos/largos, envío solo con los aprobadores exactos del flujo y el nivel de partida exacto (`expectedStart`, desenrollado hasta 8 niveles), aprobación solo por `currentApprovers`, historial `approvals` solo se puede **agregar** (slice; ojo: `list[0:0]` da error en reglas, por eso el caso vacío va aparte), usuario solo puede cambiar su `displayName`.
-- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 37 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
+- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 38 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
 - Si se agrega una moneda: `CURRENCIES` en shared **y** `currencies()` en las reglas.
 - El panel owner escucha solo en `127.0.0.1`, exige `x-admin-token` (aleatorio por inicio, llega por `#t=` en la URL), valida Host/Origin y manda CSP. Todo lo privilegiado (usuarios, claims, flujos, catálogos, aprobación final, pagos, avisos) vive ahí.
 - La web no tiene secretos (la config Firebase es pública por diseño).

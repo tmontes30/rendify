@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { setCompanyPath } from './companyPath';
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import { Layout } from './components/Layout';
@@ -22,6 +24,10 @@ function NewReport() {
 
 function Routed() {
   const { state } = useAuth();
+  const cid = state.status === 'ready' ? state.company.id : '';
+  useEffect(() => {
+    if (cid) setCompanyPath(cid);
+  }, [cid]);
   if (state.status === 'loading') return <LogoLoader page />;
   if (state.status === 'signedOut') return <Login />;
   if (state.status === 'noAccess') return <NoAccess />;

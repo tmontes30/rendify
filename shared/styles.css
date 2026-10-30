@@ -599,3 +599,6 @@ button.good:hover { background: var(--good-soft); }
 .tile-btn:hover { border-color: var(--accent); background: var(--surface); transform: translateY(-1px); }
 .tile-btn.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .tile-hint { margin-top: 6px; font-size: 12px; color: var(--accent); font-weight: 600; }
+
+.company-link { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; color: var(--text-2); }
+.mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 12.5px; }

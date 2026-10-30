@@ -433,3 +433,16 @@ describe('fotos de respaldo', () => {
     await assertFails(setDoc(doc(fs(u.worker2), 'companies', A, 'reports', 'r1', 'attachments', 'x5'), photo(u.worker2)));
   });
 });
+
+describe('directorio público de empresas', () => {
+  it('sin sesión se lee el nombre de una empresa, pero no se puede listar ni escribir', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'publicCompanies', A), { name: 'Empresa A' });
+    });
+    const anon = env.unauthenticatedContext().firestore();
+    await assertSucceeds(getDoc(doc(anon, 'publicCompanies', A)));
+    await assertFails(getDocs(collection(anon, 'publicCompanies')));
+    await assertFails(setDoc(doc(anon, 'publicCompanies', 'x'), { name: 'Hack' }));
+    await assertFails(setDoc(doc(fs(u.admin), 'publicCompanies', A), { name: 'Hack' }));
+  });
+});

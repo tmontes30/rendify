@@ -72,6 +72,13 @@ service cloud.firestore {
         && d.active is bool;
     }
 
+    // ---------- Directorio público de empresas (solo el nombre, sin listar) ----------
+    // Permite que cavedevz.com/rendify/<empresa> muestre el nombre en la pantalla de ingreso.
+    match /publicCompanies/{cid} {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
     // ---------- Perfiles ----------
     match /users/{userId} {
       allow read: if request.auth != null

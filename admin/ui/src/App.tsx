@@ -114,7 +114,7 @@ export function App() {
           >
             <Logo variant="admin" />
             <div>
-              <div className="brand-name">Rendiciones</div>
+              <div className="brand-name">Rendify</div>
               <div className="brand-sub">Panel owner</div>
             </div>
           </a>

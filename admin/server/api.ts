@@ -94,6 +94,29 @@ type ReportOut = ReturnType<typeof serializeReport>;
 
 const company = (cid: string) => db.collection('companies').doc(cid);
 
+/**
+ * publicCompanies/{cid} = { name }: lo único que se puede leer sin iniciar sesión, para que el
+ * link de cada empresa (cavedevz.com/rendify/<cid>) muestre su nombre en el ingreso.
+ */
+async function syncPublicCompanies() {
+  const [all, pub] = await Promise.all([db.collection('companies').get(), db.collection('publicCompanies').get()]);
+  const pubMap = new Map(pub.docs.map((d) => [d.id, d.data().name as string]));
+  const batch = db.batch();
+  let n = 0;
+  for (const c of all.docs) {
+    if (pubMap.get(c.id) !== c.data().name) {
+      batch.set(db.collection('publicCompanies').doc(c.id), { name: c.data().name });
+      n++;
+    }
+    pubMap.delete(c.id);
+  }
+  for (const id of pubMap.keys()) {
+    batch.delete(db.collection('publicCompanies').doc(id));
+    n++;
+  }
+  if (n) await batch.commit();
+}
+
 async function assertCompany(cid: string) {
   const c = await company(cid).get();
   if (!c.exists) throw new HttpError(404, 'Empresa no encontrada.');
@@ -123,6 +146,7 @@ api.get('/session', (_req, res) => {
 api.get(
   '/companies',
   h(async (_req, res) => {
+    await syncPublicCompanies();
     const [snap, users] = await Promise.all([db.collection('companies').orderBy('name').get(), db.collection('users').get()]);
     const counts = new Map<string, number>();
     for (const u of users.docs) if (u.data().active) counts.set(u.data().companyId, (counts.get(u.data().companyId) ?? 0) + 1);
@@ -136,6 +160,7 @@ api.post(
     const body = parse(companySchema, req.body);
     const id = await uniqueId(db.collection('companies'), body.name);
     await company(id).set({ name: body.name, baseCurrency: body.baseCurrency, active: true, createdAt: FieldValue.serverTimestamp() });
+    await db.collection('publicCompanies').doc(id).set({ name: body.name });
     await seedDefaults(id);
     invalidate();
     res.status(201).json({ id });
@@ -148,6 +173,7 @@ api.patch(
     const body = parse(companySchema.partial(), req.body);
     await assertCompany(req.params.cid);
     await company(req.params.cid).update({ ...body });
+    if (body.name) await db.collection('publicCompanies').doc(req.params.cid).set({ name: body.name });
     invalidate();
     res.json({ ok: true });
   }),
@@ -699,7 +725,7 @@ api.get(
     const [snap, comp] = await Promise.all([reportRef(cid, id).get(), assertCompany(cid)]);
     if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');
     const r = snap.data() as Report;
-    const link = `${config.webUrl}#/r/${id}`;
+    const link = `${config.webUrl}${cid}/#/r/${id}`;
     const total = formatTotals(r.totals);
     const flowData = r.flowId ? (await company(cid).collection('flows').doc(r.flowId).get()).data() : undefined;
     let toUids: string[];
@@ -1280,14 +1306,14 @@ api.get(
     const monto = b.amount != null ? formatMoney(b.amount, b.currency ?? 'CLP') : null;
     const overdue = (daysLeft ?? 0) < 0;
     const subject = overdue
-      ? `Mensualidad vencida — servicio de rendiciones (${comp.name})`
-      : `Recordatorio: tu mensualidad vence el ${fecha} — servicio de rendiciones (${comp.name})`;
+      ? `Mensualidad vencida — Rendify (${comp.name})`
+      : `Recordatorio: tu mensualidad de Rendify vence el ${fecha} (${comp.name})`;
     const lines = [
       `Hola${b.contactName ? ` ${b.contactName}` : ''},`,
       '',
       overdue
-        ? `Te recordamos que la mensualidad del servicio de rendición de gastos de ${comp.name} venció el ${fecha} (hace ${Math.abs(daysLeft ?? 0)} día(s)).`
-        : `Te recordamos que la mensualidad del servicio de rendición de gastos de ${comp.name} vence el ${fecha} (${daysLeft === 0 ? 'hoy' : `en ${daysLeft} día(s)`}).`,
+        ? `Te recordamos que la mensualidad de Rendify (rendición de gastos) de ${comp.name} venció el ${fecha} (hace ${Math.abs(daysLeft ?? 0)} día(s)).`
+        : `Te recordamos que la mensualidad de Rendify (rendición de gastos) de ${comp.name} vence el ${fecha} (${daysLeft === 0 ? 'hoy' : `en ${daysLeft} día(s)`}).`,
       ...(monto ? ['', `• Monto: ${monto}`] : []),
       '',
       overdue
@@ -1298,6 +1324,7 @@ api.get(
       '',
       'Saludos,',
       'Tomás Montes',
+      'Rendify',
     ];
     res.json({ to: b.contactEmail ? [b.contactEmail] : [], names: b.contactName ? [b.contactName] : [], subject, body: lines.join('\n') });
   }),

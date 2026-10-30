@@ -1,9 +1,18 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { companyFromPath } from '../companyPath';
 import { Logo } from '@rendiciones/shared/Logo';
 import { useAuth } from '../auth';
 import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 export function Login() {
+  // Si se entró por el link de una empresa, mostrar su nombre.
+  const [companyName, setCompanyName] = useState('');
+  useEffect(() => {
+    const cid = companyFromPath();
+    if (cid) getDoc(doc(db, 'publicCompanies', cid)).then((d) => setCompanyName((d.data()?.name as string) ?? ''), () => undefined);
+  }, []);
   const { login, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,8 +54,8 @@ export function Login() {
         <div className="login-brand">
           <Logo size={44} />
           <div>
-            <div className="brand-name">Rendiciones</div>
-            <div className="brand-sub">Rendición de gastos</div>
+            <div className="brand-name">Rendify</div>
+            <div className="brand-sub">{companyName || 'Rendición de gastos'}</div>
           </div>
         </div>
         <h1>{mode === 'login' ? 'Ingresa a tu cuenta' : 'Recupera tu contraseña'}</h1>

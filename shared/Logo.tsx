@@ -1,4 +1,4 @@
-/** Logo de Rendiciones. "admin" = versión gris del panel del owner. */
+/** Logo de Rendify. "admin" = versión gris del panel del owner. */
 export function Logo({ size = 32, variant = 'brand' }: { size?: number; variant?: 'brand' | 'admin' }) {
   const [from, to] = variant === 'admin' ? ['#a3abb9', '#5d6677'] : ['#5b84ff', '#2a4fd6'];
   const id = `rendiciones-logo-${variant}`;

@@ -1,10 +1,12 @@
-# Rendición de gastos
+# Rendify
+
+Rendición de gastos para empresas.
 
 Plataforma para que los trabajadores de **varias empresas** rindan gastos, pasen por **flujos de aprobación por niveles** y el owner gestione todo.
 
 | Parte | Dónde corre | Quién la usa |
 |---|---|---|
-| `web/` | GitHub Pages (`https://cavedevz.com/Rendiciones-Empresas/`) | Trabajadores y aprobadores de cada empresa |
+| `web/` | GitHub Pages (`https://cavedevz.com/rendify/`) | Trabajadores y aprobadores de cada empresa |
 | `admin/` | **Solo en el PC del owner** (`npm run admin`) | Owner: empresas, usuarios, flujos, áreas, categorías, rendiciones, pagos, panel, CSV, avisos por correo |
 | `firebase/` | Reglas de seguridad de Firestore + tests | — |
 | `shared/` | Tipos, monedas, estados, logo y estilos comunes | — |
@@ -91,7 +93,7 @@ Se abre el navegador con un enlace que contiene un token de sesión (cambia cada
    ```
 3. En el repo: **Settings → Secrets and variables → Actions** → crea los secretos `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` (y opcional `VITE_RECAPTCHA_SITE_KEY`).
 4. **Settings → Pages → Source: GitHub Actions**.
-5. Cada push a `main` publica la web en `https://cavedevz.com/Rendiciones-Empresas/`. Ese es el link que compartes.
+5. Cada push a `main` publica la web en `https://cavedevz.com/rendify/`. Ese es el link que compartes.
 
 ### 4. Endurecimiento recomendado
 

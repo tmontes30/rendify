@@ -36,7 +36,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <Link to={profile.companyAdmin ? '/personas' : profile.paymentsUser ? '/pagos' : profile.isApprover ? '/aprobar' : '/mis-rendiciones'} className="sidebar-brand" title="Ir al inicio">
           <Logo />
           <div>
-            <div className="brand-name">Rendiciones</div>
+            <div className="brand-name">Rendify</div>
             <div className="brand-sub">{company.name}</div>
           </div>
         </Link>

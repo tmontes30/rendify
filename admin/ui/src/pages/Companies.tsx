@@ -41,7 +41,7 @@ const COMPANY_FILTERS: { key: CompanyFilter; label: string }[] = [
 ];
 
 export function Companies() {
-  const { companies, reloadCompanies, setCompanyId, companyId } = useCompany();
+  const { companies, reloadCompanies, setCompanyId, companyId, webUrl } = useCompany();
   const [editing, setEditing] = useState<CompanyRow | 'new' | null>(null);
   const billing = useLoad<Record<string, Billing | null>>('/billing');
   const [filter, setFilter] = useState<CompanyFilter>(() => {
@@ -122,6 +122,10 @@ Motivo (solo lo ves tú):`,
             </div>
             <div className="muted small">
               Moneda base: {c.baseCurrency} · {c.activeUsers} usuario(s) activo(s)
+            </div>
+            <div className="company-link small">
+              🔗 <span className="mono">{`${webUrl}${c.id}`.replace(/^https?:\/\//, '')}</span>
+              <button className="link" onClick={() => navigator.clipboard.writeText(`${webUrl}${c.id}`)}>Copiar link</button>
             </div>
             {(() => {
               const b = billing.data?.[c.id];

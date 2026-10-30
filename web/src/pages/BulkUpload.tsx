@@ -61,7 +61,7 @@ export function BulkUpload() {
     try {
       const Excel = await loadExcel();
       const wb = new Excel.Workbook();
-      wb.creator = 'Rendiciones';
+      wb.creator = 'Rendify';
       wb.created = new Date();
 
       const ws = wb.addWorksheet(SHEET, { views: [{ state: 'frozen', ySplit: 1 }] });

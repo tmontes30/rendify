@@ -144,7 +144,7 @@ export function Users() {
 }
 
 function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow | null; defaultCompany: string; onClose: () => void; onSaved: () => void }) {
-  const { companies } = useCompany();
+  const { companies, webUrl } = useCompany();
   const isNew = !user;
   const isOrphan = !!user?.orphan;
   const [companyId, setCompanyId] = useState(user?.companyId ?? defaultCompany);
@@ -199,7 +199,7 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   }
 
   if (created) {
-    const text = `Usuario: ${created.email}\nContraseña temporal: ${created.password}`;
+    const text = `Ingreso: ${webUrl}${companyId}\nUsuario: ${created.email}\nContraseña temporal: ${created.password}`;
     return (
       <Modal title="Usuario creado" onClose={onSaved}>
         <p>Entrega estos datos por un canal privado. La contraseña no se volverá a mostrar.</p>

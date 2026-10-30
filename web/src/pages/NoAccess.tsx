@@ -10,7 +10,7 @@ export function NoAccess({ suspended }: { suspended?: string }) {
         <div className="login-brand">
           <Logo size={44} />
           <div>
-            <div className="brand-name">Rendiciones</div>
+            <div className="brand-name">Rendify</div>
             <div className="brand-sub">{suspended || 'Rendición de gastos'}</div>
           </div>
         </div>

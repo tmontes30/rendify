@@ -22,7 +22,7 @@ export const EMULATOR_PROJECT = 'demo-rendiciones';
 
 function loadConfig(): LocalConfig {
   const file = resolve(adminDir, 'config.local.json');
-  const cfg: LocalConfig = { port: 5050, webUrl: 'https://cavedevz.com/Rendiciones-Empresas/' };
+  const cfg: LocalConfig = { port: 5050, webUrl: 'https://cavedevz.com/rendify/' };
   if (existsSync(file)) Object.assign(cfg, JSON.parse(readFileSync(file, 'utf8')));
   if (process.argv.includes('--emulator')) cfg.webUrl = 'http://127.0.0.1:5173/';
   if (!cfg.webUrl.endsWith('/')) cfg.webUrl += '/';

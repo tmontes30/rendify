@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { LIMITS, type Area, type Flow } from '@rendiciones/shared';
 import { useSession } from '../auth';
+import { companyLink } from '../companyPath';
 import { adminError, createPerson, listAreas, listFlows, listPeople, sendPasswordLink, updatePerson, type Person } from '../adminData';
 import { LogoLoader, useGlobalBusy } from '@rendiciones/shared/Busy';
 
@@ -186,7 +187,7 @@ function PersonModal({
   }
 
   if (created) {
-    const text = `Ingreso: ${location.origin}${location.pathname}\nUsuario: ${created.email}\nContraseña temporal: ${created.password}`;
+    const text = `Ingreso: ${companyLink(session.company.id)}\nUsuario: ${created.email}\nContraseña temporal: ${created.password}`;
     return (
       <div className="modal-backdrop">
         <div className="card modal">
