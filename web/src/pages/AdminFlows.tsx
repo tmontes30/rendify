@@ -254,7 +254,7 @@ function FlowEditor({
                       />
                     </div>
                   </div>
-                  <Picker people={approverPool} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
+                  <Picker people={people} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
                 </div>
               </div>
             ))}
@@ -284,7 +284,10 @@ function FlowEditor({
 
 function Picker({ people, areaName, selected, onChange }: { people: Person[]; areaName: (id: string) => string; selected: string[]; onChange: (u: string[]) => void }) {
   const [q, setQ] = useState('');
-  const shown = people.filter((p) => `${p.displayName} ${p.email} ${areaName(p.areaId)}`.toLowerCase().includes(q.toLowerCase()));
+  // Perfiles especiales no pueden aprobar: solo se muestran si quedaron marcados, para poder quitarlos.
+  const shown = people.filter(
+    (p) => (!isSpecialProfile(p) || selected.includes(p.uid)) && `${p.displayName} ${p.email} ${areaName(p.areaId)}`.toLowerCase().includes(q.toLowerCase()),
+  );
   return (
     <div className="field">
       <label>Aprobadores ({selected.length})</label>
@@ -295,6 +298,11 @@ function Picker({ people, areaName, selected, onChange }: { people: Person[]; ar
             <input type="checkbox" checked={selected.includes(p.uid)} onChange={(e) => onChange(e.target.checked ? [...selected, p.uid] : selected.filter((x) => x !== p.uid))} />
             <span>
               {p.displayName} <span className="muted small">· {areaName(p.areaId)} · {p.email}</span>
+              {isSpecialProfile(p) && (
+                <span className="badge rejected" style={{ marginLeft: 6 }}>
+                  {p.paymentsUser ? 'Usuario de pagos' : 'Admin. personal'}: no puede aprobar, desmárcalo
+                </span>
+              )}
             </span>
           </label>
         ))}

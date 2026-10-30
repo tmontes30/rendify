@@ -287,7 +287,7 @@ function FlowModal({
                     />
                   </div>
                 </div>
-                <ApproverPicker users={users.filter((u) => !isSpecialProfile(u))} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
+                <ApproverPicker users={users} areaName={areaName} selected={l.approvers} onChange={(approvers) => update(i, { approvers })} />
               </div>
             </div>
           ))}
@@ -331,7 +331,10 @@ function ApproverPicker({
   onChange: (uids: string[]) => void;
 }) {
   const [q, setQ] = useState('');
-  const shown = users.filter((u) => `${u.displayName} ${u.email} ${areaName(u.areaId)}`.toLowerCase().includes(q.toLowerCase()));
+  // Perfiles especiales no pueden aprobar: solo se muestran si quedaron marcados, para poder quitarlos.
+  const shown = users.filter(
+    (u) => (!isSpecialProfile(u) || selected.includes(u.uid)) && `${u.displayName} ${u.email} ${areaName(u.areaId)}`.toLowerCase().includes(q.toLowerCase()),
+  );
   return (
     <div className="field">
       <label>Aprobadores ({selected.length})</label>
@@ -346,6 +349,11 @@ function ApproverPicker({
             />
             <span>
               {u.displayName} <span className="muted small">· {areaName(u.areaId)} · {u.email}</span>
+              {isSpecialProfile(u) && (
+                <span className="badge rejected" style={{ marginLeft: 6 }}>
+                  {u.paymentsUser ? 'Usuario de pagos' : 'Admin. personal'}: no puede aprobar, desmárcalo
+                </span>
+              )}
             </span>
           </label>
         ))}
