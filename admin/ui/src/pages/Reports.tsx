@@ -50,17 +50,17 @@ interface Detail {
 }
 
 const TABS: { key: Status | ''; label: string }[] = [
+  { key: '', label: 'Todas' },
   { key: 'pending', label: 'En aprobación' },
   { key: 'approved', label: 'Por pagar' },
   { key: 'paid', label: 'Pagadas' },
   { key: 'rejected', label: 'Rechazadas' },
   { key: 'draft', label: 'Borradores' },
-  { key: '', label: 'Todas' },
 ];
 
 export function Reports() {
   const { companyId, companyName } = useCompany();
-  const [status, setStatus] = useState<Status | ''>('pending');
+  const [status, setStatus] = useState<Status | ''>('');
   const [open, setOpen] = useState<ReportOut | null>(null);
   const list = useLoad<ReportOut[]>(`/reports${qs({ status: status || undefined, companyId: companyId || undefined })}`);
 
@@ -80,7 +80,7 @@ export function Reports() {
         {!list.data ? (
           <p className="muted">Cargando…</p>
         ) : list.data.length === 0 ? (
-          <p className="muted">No hay rendiciones en este estado.</p>
+          <p className="muted">{status ? 'No hay rendiciones en este estado.' : 'Esta empresa aún no tiene rendiciones.'}</p>
         ) : (
           <table>
             <thead>
