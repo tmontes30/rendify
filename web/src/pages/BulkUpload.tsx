@@ -24,6 +24,7 @@ const LISTS = 'Listas';
 const HEADERS = ['Fecha', 'Categoría', 'Descripción', 'Proveedor', 'Tipo documento', 'N° documento', 'Moneda', 'Monto'] as const;
 const MAX_ROWS = LIMITS.maxItems;
 const MAX_BYTES = 5 * 1024 * 1024;
+const EXAMPLE_PREFIX = 'EJEMPLO';
 
 type ExcelJS = typeof import('exceljs');
 const loadExcel = async (): Promise<ExcelJS> => {
@@ -74,10 +75,40 @@ export function BulkUpload() {
         { header: HEADERS[7], key: 'amt', width: 14, style: { numFmt: '#,##0.##' } },
       ];
       const head = ws.getRow(1);
-      head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      head.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
       head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5BD3' } };
-      head.alignment = { vertical: 'middle' };
-      head.height = 22;
+      head.alignment = { vertical: 'middle', horizontal: 'center' };
+      head.height = 26;
+
+      // Nota (comentario) en cada encabezado explicando qué va en la columna.
+      const notes = [
+        'OBLIGATORIO. Fecha del gasto, formato dd-mm-aaaa. Ej: 15-10-2026',
+        'OBLIGATORIO. Elige de la lista desplegable.',
+        'OBLIGATORIO. Qué se compró o pagó. Ej: Taxi al aeropuerto',
+        'Opcional. Nombre o RUT del comercio.',
+        'Opcional. Elige de la lista: Boleta, Factura u Otro. Si lo dejas vacío se usa Boleta.',
+        'Opcional. Número de la boleta o factura.',
+        `OBLIGATORIO. Elige de la lista (normalmente ${company.baseCurrency}).`,
+        'OBLIGATORIO. Solo el número, sin $ ni puntos de miles. Ej: 15000 o 12,50',
+      ];
+      notes.forEach((n, i) => (ws.getCell(1, i + 1).note = n));
+
+      // Fila 2: ejemplo resuelto (no se carga al subir el archivo).
+      const ex = ws.getRow(2);
+      const today = new Date();
+      ex.values = [
+        new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())),
+        categories[0]?.name ?? 'Transporte',
+        `${EXAMPLE_PREFIX} Taxi al aeropuerto (esta fila es de ejemplo y no se carga)`,
+        'Taxi SpA',
+        DOC_TYPE_LABELS.boleta,
+        '123456',
+        company.baseCurrency,
+        CURRENCIES[company.baseCurrency].decimals ? 15000.5 : 15000,
+      ];
+      ex.font = { italic: true, color: { argb: 'FF7A5B00' } };
+      ex.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4CC' } };
+      ex.height = 20;
 
       // Hoja oculta con las listas para los desplegables y la marca de formato.
       const lists = wb.addWorksheet(LISTS, { state: 'veryHidden' });
@@ -86,46 +117,59 @@ export function BulkUpload() {
       CURRENCY_CODES.forEach((c, i) => (lists.getCell(i + 1, 3).value = c));
       lists.getCell('Z1').value = `${FORMAT_ID}:${company.id}`;
 
+      // Validaciones con mensaje de ayuda al seleccionar cada celda.
       const nCat = Math.max(categories.length, 1);
-      for (let r = 2; r <= MAX_ROWS + 1; r++) {
+      for (let r = 2; r <= MAX_ROWS + 2; r++) {
         ws.getCell(r, 1).dataValidation = {
           type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [new Date(2000, 0, 1)],
+          showInputMessage: true, promptTitle: 'Fecha', prompt: 'dd-mm-aaaa. Ej: 15-10-2026',
           showErrorMessage: true, errorTitle: 'Fecha', error: 'Ingresa una fecha válida (dd-mm-aaaa).',
         };
         ws.getCell(r, 2).dataValidation = {
           type: 'list', allowBlank: true, formulae: [`${LISTS}!$A$1:$A$${nCat}`],
+          showInputMessage: true, promptTitle: 'Categoría', prompt: 'Elige de la lista (flecha a la derecha de la celda).',
           showErrorMessage: true, errorTitle: 'Categoría', error: 'Elige una categoría de la lista.',
+        };
+        ws.getCell(r, 3).dataValidation = {
+          type: 'textLength', operator: 'lessThanOrEqual', allowBlank: true, formulae: [500],
+          showInputMessage: true, promptTitle: 'Descripción', prompt: 'Qué se compró o pagó. Ej: Almuerzo con cliente',
         };
         ws.getCell(r, 5).dataValidation = {
           type: 'list', allowBlank: true, formulae: [`${LISTS}!$B$1:$B$${DOC_TYPES.length}`],
+          showInputMessage: true, promptTitle: 'Tipo de documento', prompt: 'Boleta, Factura u Otro.',
           showErrorMessage: true, error: 'Elige un tipo de documento de la lista.',
         };
         ws.getCell(r, 7).dataValidation = {
           type: 'list', allowBlank: true, formulae: [`${LISTS}!$C$1:$C$${CURRENCY_CODES.length}`],
+          showInputMessage: true, promptTitle: 'Moneda', prompt: `Normalmente ${company.baseCurrency}.`,
           showErrorMessage: true, error: 'Elige una moneda de la lista.',
         };
         ws.getCell(r, 8).dataValidation = {
           type: 'decimal', operator: 'greaterThan', allowBlank: true, formulae: [0],
+          showInputMessage: true, promptTitle: 'Monto', prompt: 'Solo el número. Ej: 15000',
           showErrorMessage: true, error: 'El monto debe ser un número mayor que 0.',
         };
       }
 
       const help = wb.addWorksheet('Instrucciones');
-      help.getColumn(1).width = 100;
+      help.getColumn(1).width = 110;
       [
         'Cómo usar esta plantilla',
         '',
-        `1. Completa la hoja "${SHEET}": una fila por cada gasto, desde la fila 2 hacia abajo (máximo ${MAX_ROWS}).`,
-        '2. Fecha, Categoría, Descripción, Moneda y Monto son obligatorios. Proveedor y N° documento son opcionales.',
-        '3. Categoría, Tipo documento y Moneda se eligen desde la lista desplegable.',
-        '4. Monto: solo el número, sin símbolo $ (ej: 15000 o 12,50).',
-        '5. No cambies los títulos de las columnas ni el nombre de las hojas.',
-        '6. Guarda el archivo como .xlsx y súbelo en la página "Carga masiva".',
+        `1. Ve a la hoja "${SHEET}". La fila 2 (amarilla) es un EJEMPLO: muestra cómo llenar cada columna. Puedes dejarla tal cual o borrarla; no se carga.`,
+        `2. Escribe tus gastos desde la fila 3 hacia abajo: una fila por cada gasto (máximo ${MAX_ROWS}).`,
+        '3. Obligatorios: Fecha, Categoría, Descripción, Moneda y Monto. Opcionales: Proveedor, Tipo documento y N° documento.',
+        '4. Categoría, Tipo documento y Moneda se eligen desde la lista desplegable (flecha a la derecha de la celda).',
+        '5. Fecha en formato dd-mm-aaaa (ej: 15-10-2026). Monto solo el número, sin $ ni puntos de miles (ej: 15000 o 12,50).',
+        '6. Pasa el mouse sobre los títulos de las columnas para ver una ayuda de cada una.',
+        '7. No cambies los títulos de las columnas ni el nombre de las hojas.',
+        '8. Guarda el archivo como .xlsx y súbelo en la página "Carga masiva". Antes de enviar podrás revisar todo y adjuntar fotos de respaldo.',
         '',
         `Plantilla generada para ${company.name}. Si cambian las categorías, descarga una plantilla nueva.`,
       ].forEach((t, i) => {
         const c = help.getCell(i + 1, 1);
         c.value = t;
+        c.alignment = { wrapText: true, vertical: 'top' };
         if (i === 0) c.font = { bold: true, size: 14 };
       });
 
@@ -173,6 +217,7 @@ export function BulkUpload() {
       for (let r = 2; r <= ws.rowCount; r++) {
         const cells = HEADERS.map((_, i) => ws.getCell(r, i + 1).value);
         if (cells.every((v) => text(v) === '')) continue;
+        if (text(cells[2]).toUpperCase().startsWith(EXAMPLE_PREFIX)) continue; // fila de ejemplo
         if (out.length >= MAX_ROWS) {
           setError(`La plantilla tiene más de ${MAX_ROWS} gastos. Divídelos en dos rendiciones.`);
           break;

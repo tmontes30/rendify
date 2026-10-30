@@ -21,6 +21,7 @@ import { useSession } from '../auth';
 import { decide, fmtDate, friendlyError, getFlow, getReport, listCategories, registerPayment } from '../data';
 import { StatusBadge } from '../components/StatusBadge';
 import { ResubmittedNotice } from '../components/ReportRow';
+import { AttachmentsViewer } from '../components/Attachments';
 import { ReportEditor } from './ReportEditor';
 
 export function ReportPage() {
@@ -131,6 +132,11 @@ export function ReportPage() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="card">
+          <h2>📎 Fotos de respaldo</h2>
+          <AttachmentsViewer cid={company.id} rid={report.id} />
         </div>
 
         <div className="card">

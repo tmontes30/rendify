@@ -11,6 +11,7 @@ import {
   startLevel,
   sumTotals,
   toMinor,
+  type Attachment,
   type Category,
   type Currency,
   type DocType,
@@ -18,7 +19,8 @@ import {
   type Report,
 } from '@rendiciones/shared';
 import { useSession } from '../auth';
-import { deleteDraft, friendlyError, listCategories, saveReport, type ItemDraft } from '../data';
+import { deleteDraft, friendlyError, listAttachments, listCategories, saveReport, type ItemDraft, type NewAttachment } from '../data';
+import { AttachmentsEditor } from '../components/Attachments';
 import { StatusBadge } from '../components/StatusBadge';
 
 export interface RowState {
@@ -105,6 +107,13 @@ export function ReportEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [existingAtt, setExistingAtt] = useState<Attachment[]>([]);
+  const [pendingAtt, setPendingAtt] = useState<(NewAttachment & { key: string })[]>([]);
+  const [removedAtt, setRemovedAtt] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (existing) listAttachments(company.id, existing.report.id).then(setExistingAtt, () => undefined);
+  }, [company.id, existing]);
 
   useEffect(() => {
     listCategories(company.id).then(setCategories, (e) => setError(friendlyError(e)));
@@ -154,7 +163,10 @@ export function ReportEditor({
       } catch {
         /* sin almacenamiento */
       }
-      const id = await saveReport(session, existing ?? null, { title, periodFrom: period.from, periodTo: period.to }, valid, submit);
+      const id = await saveReport(session, existing ?? null, { title, periodFrom: period.from, periodTo: period.to }, valid, submit, {
+        add: pendingAtt.map(({ key: _k, ...a }) => a),
+        remove: removedAtt,
+      });
       navigate(`/r/${id}`, { replace: true, state: { flash: submit ? 'sent' : 'saved' } });
     } catch (e) {
       setError(friendlyError(e));
@@ -301,6 +313,16 @@ export function ReportEditor({
           </div>
         </div>
       </div>
+
+      <AttachmentsEditor
+        existing={existingAtt}
+        pending={pendingAtt}
+        removed={removedAtt}
+        onAdd={(a) => setPendingAtt((xs) => [...xs, { ...a, key: `p${Date.now()}${Math.random()}` }])}
+        onRemovePending={(k) => setPendingAtt((xs) => xs.filter((x) => x.key !== k))}
+        onRemoveExisting={(id) => setRemovedAtt((xs) => [...xs, id])}
+        onCaption={(k, c) => setPendingAtt((xs) => xs.map((x) => (x.key === k ? { ...x, caption: c } : x)))}
+      />
 
       <div className="card submit-bar">
         {flow ? (

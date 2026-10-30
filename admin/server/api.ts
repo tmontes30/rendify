@@ -639,14 +639,19 @@ api.get(
     const snap = await reportRef(cid, id).get();
     if (!snap.exists) throw new HttpError(404, 'Rendición no encontrada.');
     const report = serializeReport(snap.id, cid, snap.data()!);
-    const [items, flow] = await Promise.all([
+    const [items, flow, attSnap] = await Promise.all([
       loadItems(cid, id),
       report.flowId ? company(cid).collection('flows').doc(report.flowId).get() : null,
+      reportRef(cid, id).collection('attachments').get(),
     ]);
     const computed = sumTotals(items);
+    const attachments = attSnap.docs
+      .map((d) => ({ id: d.id, name: d.data().name as string, caption: (d.data().caption as string) ?? '', dataUrl: d.data().dataUrl as string, at: tsToIso(d.data().createdAt) }))
+      .sort((x, y) => (x.at ?? '').localeCompare(y.at ?? ''));
     res.json({
       report,
       items,
+      attachments,
       flow: flow?.exists ? { id: flow.id, ...flow.data() } : null,
       computedTotals: computed,
       totalsMismatch: !totalsEqual(computed, report.totals ?? {}),

@@ -233,6 +233,19 @@ export interface Payment {
   comment: string;
 }
 
+/** Foto de respaldo (imagen JPEG comprimida guardada en el documento). */
+export interface Attachment {
+  id: string;
+  name: string;
+  caption: string;
+  dataUrl: string;
+  size: number;
+  uploadedBy: string;
+  createdAt?: unknown;
+}
+
+export const MAX_ATTACHMENTS = 10;
+
 export interface Item {
   id: string;
   date: string; // YYYY-MM-DD

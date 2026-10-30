@@ -330,6 +330,40 @@ service cloud.firestore {
           && resource.data.ownerUid == uid()
           && resource.data.status == 'draft';
 
+        // ---------- Fotos de respaldo (imagen comprimida en el documento) ----------
+        match /attachments/{aid} {
+          function reportPathA() {
+            return /databases/$(database)/documents/companies/$(cid)/reports/$(rid);
+          }
+
+          allow read: if member(cid)
+            && (get(reportPathA()).data.ownerUid == uid()
+                || uid() in get(reportPathA()).data.approverUids
+                || uid() in get(reportPathA()).data.currentApprovers
+                || profile().companyAdmin == true);
+
+          // Solo el dueño, mientras la rendición es editable (o se crea en el mismo lote).
+          allow create: if member(cid)
+            && getAfter(reportPathA()).data.ownerUid == uid()
+            && (!exists(reportPathA()) || get(reportPathA()).data.status in ['draft', 'rejected'])
+            && request.resource.data.keys().hasOnly(['name', 'caption', 'dataUrl', 'size', 'uploadedBy', 'createdAt'])
+            && request.resource.data.keys().hasAll(['name', 'caption', 'dataUrl', 'size', 'uploadedBy', 'createdAt'])
+            && str(request.resource.data.name, 1, 120)
+            && str(request.resource.data.caption, 0, 120)
+            && request.resource.data.dataUrl is string
+            && request.resource.data.dataUrl.size() <= 700000
+            && request.resource.data.dataUrl[0:23] == 'data:image/jpeg;base64,'
+            && request.resource.data.size is int
+            && request.resource.data.uploadedBy == uid()
+            && request.resource.data.createdAt == request.time;
+
+          allow update: if false;
+
+          allow delete: if member(cid)
+            && get(reportPathA()).data.ownerUid == uid()
+            && get(reportPathA()).data.status in ['draft', 'rejected'];
+        }
+
         // ---------- Gastos ----------
         match /items/{iid} {
           function reportPath() {

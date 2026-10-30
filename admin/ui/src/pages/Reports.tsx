@@ -44,6 +44,7 @@ interface ReportOut {
 interface Detail {
   report: ReportOut;
   items: Item[];
+  attachments: { id: string; name: string; caption: string; dataUrl: string }[];
   flow: Flow | null;
   computedTotals: Totals;
   totalsMismatch: boolean;
@@ -131,6 +132,7 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
   const [notify, setNotify] = useState(false);
+  const [photo, setPhoto] = useState<{ name: string; caption: string; dataUrl: string } | null>(null);
   const [method, setMethod] = useState<PaymentMethod>('transferencia');
   const [reference, setReference] = useState('');
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
@@ -209,6 +211,22 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
               </tbody>
             </table>
           </div>
+
+          {data.attachments.length > 0 && (
+            <div>
+              <h3>📎 Fotos de respaldo ({data.attachments.length})</h3>
+              <div className="thumb-grid">
+                {data.attachments.map((a) => (
+                  <figure key={a.id} className="thumb">
+                    <button type="button" className="thumb-img" onClick={() => setPhoto(a)} title="Ver en grande">
+                      <img src={a.dataUrl} alt={a.caption || a.name} />
+                    </button>
+                    <figcaption className="small">{a.caption || a.name}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <h3>Recorrido de aprobación {data.flow && <span className="muted small">· flujo “{data.flow.name}”</span>}</h3>
@@ -289,6 +307,20 @@ function ReportModal({ cid, id, onClose, onChanged }: { cid: string; id: string;
         </div>
       )}
       {notify && <NotifyModal cid={cid} id={id} onClose={() => setNotify(false)} />}
+      {photo && (
+        <div className="lightbox" onClick={() => setPhoto(null)}>
+          <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <img src={photo.dataUrl} alt={photo.caption || photo.name} />
+            <div className="row spread lightbox-bar">
+              <span className="small">{photo.caption || photo.name}</span>
+              <div className="row tight">
+                <a className="btn" href={photo.dataUrl} download={photo.name.replace(/\.[^.]+$/, '') + '.jpg'}>Descargar</a>
+                <button onClick={() => setPhoto(null)}>Cerrar ✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

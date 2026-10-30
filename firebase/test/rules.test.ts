@@ -396,3 +396,40 @@ describe('administrador de personal', () => {
     await assertFails(getDoc(doc(fs(u.adminB), 'companies', A, 'reports', 'r1')));
   });
 });
+
+describe('fotos de respaldo', () => {
+  const photo = (x: U, extra: Record<string, unknown> = {}) => ({
+    name: 'boleta.jpg', caption: 'Boleta taxi', dataUrl: 'data:image/jpeg;base64,' + 'A'.repeat(1000), size: 750,
+    uploadedBy: x.uid, createdAt: serverTimestamp(), ...extra,
+  });
+
+  it('el dueño sube fotos a su borrador; aprobadores, payer y admin las ven', async () => {
+    await seed('r1', u.worker, { approverUids: ['b1', 'c1', 'p1'] });
+    await assertSucceeds(setDoc(doc(fs(u.worker), 'companies', A, 'reports', 'r1', 'attachments', 'f1'), photo(u.worker)));
+    for (const x of [u.boss, u.payer, u.admin]) {
+      await assertSucceeds(getDoc(doc(fs(x), 'companies', A, 'reports', 'r1', 'attachments', 'f1')));
+    }
+    await assertFails(getDoc(doc(fs(u.worker2), 'companies', A, 'reports', 'r1', 'attachments', 'f1')));
+  });
+
+  it('se sube junto con la rendición al enviarla (mismo lote)', async () => {
+    const db = fs(u.worker);
+    const b = writeBatch(db);
+    const ref = doc(collection(db, 'companies', A, 'reports'));
+    b.set(ref, draft(u.worker, pendingFields()));
+    b.set(doc(collection(db, 'companies', A, 'reports', ref.id, 'items')), item);
+    b.set(doc(collection(db, 'companies', A, 'reports', ref.id, 'attachments')), photo(u.worker));
+    await assertSucceeds(b.commit());
+  });
+
+  it('no se suben fotos inválidas, ajenas ni a rendiciones enviadas', async () => {
+    await seed('r1', u.worker, {});
+    await seed('r2', u.worker, { status: 'pending', currentApprovers: ['b1'] });
+    const ref = (id: string, rid = 'r1') => doc(fs(u.worker), 'companies', A, 'reports', rid, 'attachments', id);
+    await assertFails(setDoc(ref('x1'), photo(u.worker, { dataUrl: 'data:text/html;base64,AAAA' })));
+    await assertFails(setDoc(ref('x2'), photo(u.worker, { dataUrl: 'data:image/jpeg;base64,' + 'A'.repeat(800000) })));
+    await assertFails(setDoc(ref('x3'), photo(u.worker, { uploadedBy: 'b1' })));
+    await assertFails(setDoc(ref('x4', 'r2'), photo(u.worker)));
+    await assertFails(setDoc(doc(fs(u.worker2), 'companies', A, 'reports', 'r1', 'attachments', 'x5'), photo(u.worker2)));
+  });
+});

@@ -15,6 +15,7 @@ import {
 import { useSession } from '../auth';
 import { fmtDate, friendlyError, getFlow, getReport, listCategories } from '../data';
 import { StatusBadge } from './StatusBadge';
+import { AttachmentsViewer } from './Attachments';
 
 interface Loaded {
   items: Item[];
@@ -79,6 +80,7 @@ export function ReportRow({ report, subtitle }: { report: Report; subtitle: stri
               {resub.lastRejection && report.status !== 'rejected' && <ResubmittedNotice info={resub} owner={report.ownerName} />}
               <Progress report={report} flow={data.flow} />
               <ItemsMini items={data.items} categories={data.categories} />
+              <AttachmentsViewer cid={company.id} rid={report.id} compact />
               <div className="row detail-actions">
                 {canEdit && (
                   <Link to={`/r/${report.id}`} className="btn primary">

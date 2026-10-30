@@ -17,6 +17,7 @@ import {
   startLevel,
   sumTotals,
   type Approval,
+  type Attachment,
   type Category,
   type Flow,
   type Item,
@@ -98,6 +99,7 @@ export async function saveReport(
   header: ReportHeader,
   rows: ItemDraft[],
   submit: boolean,
+  attachments: { add: NewAttachment[]; remove: string[] } = { add: [], remove: [] },
 ): Promise<string> {
   const cid = s.company.id;
   const batch = writeBatch(db);
@@ -121,6 +123,13 @@ export async function saveReport(
     batch.set(itemRef, clean(r));
   }
   for (const old of existing?.items ?? []) if (!keep.has(old.id)) batch.delete(doc(itemsCol(cid, ref.id), old.id));
+
+  // Fotos de respaldo en el mismo lote (así también se pueden adjuntar al enviar).
+  const attCol = collection(db, 'companies', cid, 'reports', ref.id, 'attachments');
+  for (const a of attachments.add) {
+    batch.set(doc(attCol), { name: a.name, caption: a.caption.trim().slice(0, 120), dataUrl: a.dataUrl, size: a.size, uploadedBy: s.profile.uid, createdAt: serverTimestamp() });
+  }
+  for (const id of attachments.remove) batch.delete(doc(attCol, id));
 
   const totals = sumTotals(rows);
   const base = { title: header.title.trim(), periodFrom: header.periodFrom, periodTo: header.periodTo, totals, itemCount: rows.length, updatedAt: serverTimestamp() };
@@ -199,6 +208,9 @@ export async function decide(s: Session, report: Report, items: Item[], decision
 
 export function friendlyError(e: unknown): string {
   const msg = (e as Error)?.message ?? '';
+  if (msg === 'NOT_IMAGE') return 'Solo se pueden adjuntar fotos (JPG, PNG, HEIC…).';
+  if (msg === 'BAD_IMAGE') return 'No se pudo leer la foto. Prueba con otra o sácale una captura.';
+  if (msg === 'IMAGE_TOO_BIG') return 'La foto es demasiado grande para comprimirla. Prueba con otra.';
   if (msg === 'NO_FLOW') return 'No tienes un flujo de aprobación asignado. Pídele al administrador que te asigne uno.';
   const code = (e as { code?: string })?.code ?? '';
   if (code.includes('permission-denied')) return 'No tienes permiso para esta acción (o la rendición ya cambió de estado). Recarga la página.';
@@ -245,4 +257,59 @@ export async function registerPayment(
       comment: data.comment.trim().slice(0, 500),
     },
   });
+}
+
+// ---------- Fotos de respaldo ----------
+export type NewAttachment = Omit<Attachment, 'id' | 'uploadedBy' | 'createdAt'>;
+
+export async function listAttachments(cid: string, rid: string): Promise<Attachment[]> {
+  const snap = await getDocs(collection(db, 'companies', cid, 'reports', rid, 'attachments'));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Attachment, 'id'>) }))
+    .sort((a, b) => (toDate(a.createdAt)?.getTime() ?? 0) - (toDate(b.createdAt)?.getTime() ?? 0));
+}
+
+const MAX_DATAURL = 450_000; // ~330 KB por foto (el límite de un documento es 1 MB)
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('BAD_IMAGE'));
+    };
+    img.src = url;
+  });
+}
+
+/** Reduce y comprime una foto a JPEG legible de ~300 KB como máximo. */
+export async function compressImage(file: File): Promise<NewAttachment> {
+  if (!file.type.startsWith('image/')) throw new Error('NOT_IMAGE');
+  const img = await loadImage(file);
+  let maxSide = 1600;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    for (const q of [0.8, 0.7, 0.6, 0.5]) {
+      const dataUrl = canvas.toDataURL('image/jpeg', q);
+      if (dataUrl.length <= MAX_DATAURL) {
+        return { name: file.name.slice(0, 120) || 'foto.jpg', caption: '', dataUrl, size: Math.round((dataUrl.length * 3) / 4) };
+      }
+    }
+    maxSide = Math.round(maxSide * 0.75);
+  }
+  throw new Error('IMAGE_TOO_BIG');
 }
