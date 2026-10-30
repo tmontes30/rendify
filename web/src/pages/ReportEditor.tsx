@@ -61,9 +61,10 @@ export function rowFromItem(it: Item): RowState {
   return { key: newKey(), ...it, customCategory: it.customCategory ?? '', amountText: fromMinor(it.amount, it.currency) };
 }
 
-function defaultTitle() {
-  const m = new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-  return `Rendición ${m}`;
+/** Título por defecto: "Rendición 30-10-2026 - 14:35" (fecha y hora de creación). */
+export function defaultTitle(d = new Date()) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `Rendición ${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /** Valida una fila; devuelve el gasto listo o el mensaje de error. */

@@ -15,7 +15,7 @@ import {
 } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { friendlyError, listCategories } from '../data';
-import { emptyRow, type RowState } from './ReportEditor';
+import { defaultTitle, emptyRow, type RowState } from './ReportEditor';
 import { useGlobalBusy } from '@rendiciones/shared/Busy';
 
 // Formato oficial de la plantilla. Si cambias columnas, sube la versión.
@@ -239,8 +239,7 @@ export function BulkUpload() {
   const bad = parsed?.filter((p) => !p.row) ?? [];
 
   function proceed() {
-    const month = new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-    navigate('/nueva', { state: { rows: ok.map((p) => p.row!), title: `Rendición ${month} (carga masiva)` } });
+    navigate('/nueva', { state: { rows: ok.map((p) => p.row!), title: `${defaultTitle()} (carga masiva)` } });
   }
 
   const onDrop = (e: DragEvent) => {
