@@ -519,6 +519,13 @@ async function assertRefs(cid: string, areaId?: string, flowId?: string | null) 
   }
 }
 
+/** El RUT no se puede repetir dentro de una misma empresa. */
+async function assertRutFree(cid: string, rut: string | undefined, exceptUid?: string) {
+  if (!rut) return;
+  const dup = await db.collection('users').where('companyId', '==', cid).where('rut', '==', rut).get();
+  if (dup.docs.some((d) => d.id !== exceptUid)) throw new HttpError(409, `Ya existe una persona con el RUT ${rut} en esta empresa.`);
+}
+
 async function listAllAuthUsers() {
   const all = [];
   let pageToken: string | undefined;
@@ -564,15 +571,18 @@ api.post(
   h(async (req, res) => {
     const body = parse(createUserSchema, req.body);
     await assertCompany(body.companyId);
-    await assertRefs(body.companyId, body.areaId, body.flowId);
+    await assertRefs(body.companyId, body.areaId ?? undefined, body.flowId);
+    await assertRutFree(body.companyId, body.rut);
     const user = await auth.createUser({ email: body.email, password: body.password, displayName: body.displayName });
     try {
       await auth.setCustomUserClaims(user.uid, { companyId: body.companyId });
       await db.collection('users').doc(user.uid).set({
         email: body.email,
         displayName: body.displayName,
+        rut: body.rut,
+        position: body.position,
         companyId: body.companyId,
-        areaId: body.areaId,
+        areaId: body.areaId ?? null,
         flowId: body.paymentsUser || body.companyAdmin ? null : body.flowId,
         isApprover: false,
         paymentsUser: body.paymentsUser,
@@ -596,15 +606,18 @@ api.post(
     const body = parse(createUserSchema.omit({ email: true, password: true }), req.body);
     if ((await db.collection('users').doc(req.params.uid).get()).exists) throw new HttpError(409, 'Esta cuenta ya tiene perfil.');
     await assertCompany(body.companyId);
-    await assertRefs(body.companyId, body.areaId, body.flowId);
+    await assertRefs(body.companyId, body.areaId ?? undefined, body.flowId);
+    await assertRutFree(body.companyId, body.rut);
     const user = await auth.getUser(req.params.uid);
     await auth.updateUser(user.uid, { displayName: body.displayName });
     await auth.setCustomUserClaims(user.uid, { companyId: body.companyId });
     await db.collection('users').doc(user.uid).set({
       email: user.email ?? '',
       displayName: body.displayName,
+      rut: body.rut,
+      position: body.position,
       companyId: body.companyId,
-      areaId: body.areaId,
+      areaId: body.areaId ?? null,
       flowId: body.flowId,
       isApprover: false,
       active: !user.disabled,
@@ -624,7 +637,8 @@ api.patch(
     const snap = await ref.get();
     if (!snap.exists) throw new HttpError(404, 'Usuario no encontrado.');
     const cid = snap.data()!.companyId as string;
-    await assertRefs(cid, body.areaId, body.flowId);
+    await assertRefs(cid, body.areaId ?? undefined, body.flowId);
+    await assertRutFree(cid, body.rut, req.params.uid);
     if (body.displayName) await auth.updateUser(req.params.uid, { displayName: body.displayName });
     const becomesSpecial = isSpecialProfile({ ...(snap.data() as { paymentsUser?: boolean; companyAdmin?: boolean }), ...body });
     await ref.update({ ...body, ...(becomesSpecial ? { flowId: null } : {}) });
@@ -967,7 +981,7 @@ api.get(
     const total: Totals = {};
     for (const r of inRange) {
       addTo(byCompany, r.companyId, r.currency, r.amount);
-      addTo(byArea, `${r.companyId}/${r.report.areaId}`, r.currency, r.amount);
+      addTo(byArea, `${r.companyId}/${r.report.areaId ?? 'sin-area'}`, r.currency, r.amount);
       addTo(byMonth, r.date.slice(0, 7), r.currency, r.amount);
       addTo(byCategory, `${r.companyId}/${r.categoryId}`, r.currency, r.amount);
       addTo(byUser, r.report.ownerUid, r.currency, r.amount);
@@ -995,7 +1009,7 @@ api.get(
       byUser: toList(byUser),
       names: {
         companies: Object.fromEntries(companies.map((c) => [c.id, c.name])),
-        areas: areaNames,
+        areas: { ...Object.fromEntries([...byArea.keys()].map((k) => [k, 'Sin área'])), ...areaNames },
         categories: catNames,
         users: Object.fromEntries(users.map((u) => [u.id, u.name])),
       },

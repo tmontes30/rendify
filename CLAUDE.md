@@ -52,7 +52,7 @@ Al reiniciar el panel: matar el proceso que escucha en el puerto 5050 (PowerShel
 
 ```
 users/{uid}                         perfil (fuente de verdad del acceso)
-  email, displayName, companyId, areaId, flowId|null, isApprover, isPayer, paymentsUser, companyAdmin, active, createdAt, createdBy?
+  email, displayName, rut, position, companyId, areaId|null, flowId|null, isApprover, isPayer, paymentsUser, companyAdmin, active, createdAt, createdBy?
 companies/{cid}                     name, baseCurrency, active, createdAt
   areas/{id}, categories/{id}       name, active   (al crear empresa se cargan DEFAULT_AREAS/DEFAULT_CATEGORIES)
   flows/{fid}                       name, levels[{name, minAmount, approvers[uid]}], payerUid,
@@ -93,6 +93,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 - **Links por empresa:** `https://cavedevz.com/rendify/<cid>/` (repo GitHub `tmontes30/rendify`; Vite base `/rendify/`; el build copia `index.html` a `404.html` para que GitHub Pages sirva cualquier subruta). `web/src/companyPath.ts` lee la empresa de la dirección; el ingreso muestra su nombre leyendo `publicCompanies/{cid}` (`{name}`, legible sin sesión con `get`, no se puede listar ni escribir; el panel lo sincroniza en `syncPublicCompanies`). Tras iniciar sesión, la dirección se reescribe al `cid` del usuario. Los correos del panel usan `${webUrl}${cid}/#/r/<id>`; las tarjetas de Empresas muestran y copian el link.
 - **Flujo editado con rendiciones en curso:** al guardar un flujo (panel: `reroutePending`; web admin: en `saveFlow`) las rendiciones `pending` de ese flujo se reacomodan con `rerouteToFlow` (shared): parten en `startLevel` del dueño y saltan niveles ya aprobados en la ronda actual; si no queda nivel, esperan al owner. Reglas: el admin de personal solo puede dejar `currentLevel/currentApprovers` consistentes con el flujo vigente. El avance en la web muestra siempre `currentApprovers` y avisa si el flujo cambió sin reacomodar.
 - **Tiempo real:** la web usa `onSnapshot` (`watchMyReports`, `watchPendingForMe`, `watchApproverHistory`, `watchPayments`, `watchReportChanges` en `data.ts`): Mis rendiciones, Por aprobar, Pagos, los contadores del menú y la rendición abierta se actualizan solos; el menú muestra un aviso (toast) cuando llega algo nuevo para aprobar o pagar. El panel del owner recarga cada sección al volver a la pestaña (`useLoad`) y revisa el contador de notificaciones cada 30 s.
+- **Datos de cada persona:** obligatorios nombre, **RUT** (validado con dígito verificador, guardado como `12345678-9`, único por empresa; `normalizeRut/isValidRut/formatRut` en shared) y **cargo** (`position`); el **área es opcional** (`areaId: null` = "Sin área"). Las reglas exigen RUT y cargo al crear desde la web; perfiles antiguos sin esos campos siguen funcionando.
 - **Reenvíos:** `resubmissionInfo()` cuenta rechazos previos → "↻ 2° envío", aviso amarillo con quién rechazó y por qué; en "Por aprobar" se agrupan "Reenviadas con corrección" vs "Nuevas".
 - **Notificaciones (sin envío automático):** el panel calcula avisos pendientes (`computeNotices` en `admin/server/api.ts`):
   1. Rendición `approved` sin aviso al payer posterior a la aprobación → avisar a quien paga.
@@ -104,7 +105,7 @@ companies/{cid}                     name, baseCurrency, active, createdAt
 ## Seguridad (no romper)
 
 - `firebase/firestore.rules` es la barrera real de la web: deny por defecto, aislamiento por empresa, validación de campos/tipos/largos, envío solo con los aprobadores exactos del flujo y el nivel de partida exacto (`expectedStart`, desenrollado hasta 8 niveles), aprobación solo por `currentApprovers`, historial `approvals` solo se puede **agregar** (slice; ojo: `list[0:0]` da error en reglas, por eso el caso vacío va aparte), usuario solo puede cambiar su `displayName`.
-- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 39 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
+- Antes de cambiar reglas: editar → `npm run test:rules` (hoy 40 tests) → `npm run deploy:rules`. Agregar tests para cada caso nuevo.
 - Si se agrega una moneda: `CURRENCIES` en shared **y** `currencies()` en las reglas.
 - El panel owner escucha solo en `127.0.0.1`, exige `x-admin-token` (aleatorio por inicio, llega por `#t=` en la URL), valida Host/Origin y manda CSP. Todo lo privilegiado (usuarios, claims, flujos, catálogos, aprobación final, pagos, avisos) vive ahí.
 - La web no tiene secretos (la config Firebase es pública por diseño).

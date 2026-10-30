@@ -27,19 +27,30 @@ export async function listFlows(cid: string): Promise<Flow[]> {
 
 export interface PersonInput {
   displayName: string;
-  areaId: string;
+  rut: string; // ya normalizado (12345678-9)
+  position: string;
+  areaId: string | null;
   flowId: string | null;
   paymentsUser: boolean;
 }
 
+/** El RUT no se puede repetir dentro de la empresa. */
+async function assertRutFree(cid: string, rut: string, exceptUid?: string) {
+  const dup = await getDocs(query(collection(db, 'users'), where('companyId', '==', cid), where('rut', '==', rut)));
+  if (dup.docs.some((d) => d.id !== exceptUid)) throw new Error('RUT_TAKEN');
+}
+
 /** Crea la cuenta de acceso y el perfil en la empresa del administrador. */
 export async function createPerson(s: Session, email: string, password: string, data: PersonInput) {
+  await assertRutFree(s.company.id, data.rut);
   return createAccount(email, password, async (uid) => {
     await setDoc(doc(db, 'users', uid), {
       email: email.trim().toLowerCase(),
       displayName: data.displayName.trim().replace(/\s+/g, ' '),
+      rut: data.rut,
+      position: data.position.trim(),
       companyId: s.company.id,
-      areaId: data.areaId,
+      areaId: data.areaId || null,
       flowId: data.paymentsUser ? null : data.flowId,
       isApprover: false,
       paymentsUser: data.paymentsUser,
@@ -51,6 +62,7 @@ export async function createPerson(s: Session, email: string, password: string, 
 }
 
 export async function updatePerson(uid: string, data: Partial<PersonInput> & { active?: boolean }, current: Person) {
+  if (data.rut && data.rut !== current.rut) await assertRutFree(current.companyId, data.rut, uid);
   await updateDoc(doc(db, 'users', uid), {
     ...data,
     ...(data.displayName ? { displayName: data.displayName.trim().replace(/\s+/g, ' ') } : {}),
@@ -162,6 +174,7 @@ export async function deleteFlow(s: Session, flow: Flow, people: Person[], allFl
 export function adminError(e: unknown): string {
   const msg = (e as Error)?.message ?? '';
   const code = (e as { code?: string })?.code ?? '';
+  if (msg === 'RUT_TAKEN') return 'Ya existe una persona con ese RUT en tu empresa.';
   if (msg === 'FLOW_IN_USE') return 'Hay personas asignadas a este flujo. Cámbialas de flujo antes de eliminarlo.';
   if (msg === 'FLOW_PENDING') return 'Hay rendiciones en aprobación con este flujo.';
   if (code.includes('email-already-in-use')) return 'Ya existe una cuenta con ese correo. Pídele al administrador del servicio que la asigne a tu empresa.';

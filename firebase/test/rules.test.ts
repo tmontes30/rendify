@@ -336,7 +336,7 @@ describe('empresa suspendida', () => {
 
 describe('administrador de personal', () => {
   const person = (extra: Record<string, unknown> = {}) => ({
-    email: 'nuevo@x.cl', displayName: 'Nuevo Trabajador', companyId: A, areaId: 'ventas', flowId: 'f1',
+    email: 'nuevo@x.cl', displayName: 'Nuevo Trabajador', rut: '11111111-1', position: 'Vendedor', companyId: A, areaId: 'ventas', flowId: 'f1',
     isApprover: false, paymentsUser: false, active: true, createdAt: serverTimestamp(), createdBy: 'a1', ...extra,
   });
   const flow = (extra: Record<string, unknown> = {}) => ({
@@ -359,6 +359,15 @@ describe('administrador de personal', () => {
     await assertFails(setDoc(doc(db, 'users', 'n3'), person({ companyId: B })));
     await assertFails(setDoc(doc(db, 'users', 'n4'), person({ companyAdmin: true })));
     await assertFails(setDoc(doc(db, 'users', 'n5'), person({ createdBy: 'otro' })));
+  });
+
+  it('RUT y cargo obligatorios al crear; el área es opcional', async () => {
+    const db = fs(u.admin);
+    await assertSucceeds(setDoc(doc(db, 'users', 'r1'), person({ areaId: null })));
+    await assertFails(setDoc(doc(db, 'users', 'r2'), person({ rut: '123' })));
+    await assertFails(setDoc(doc(db, 'users', 'r3'), person({ position: '' })));
+    const { rut: _r, ...sinRut } = person();
+    await assertFails(setDoc(doc(db, 'users', 'r4'), sinRut));
   });
 
   it('un usuario normal no crea ni edita personas', async () => {

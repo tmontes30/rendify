@@ -106,7 +106,7 @@ export function AdminFlows() {
           flow={editing === 'new' ? null : editing}
           people={people.filter((p) => p.active)}
           flowName={(id) => flows?.find((x) => x.id === id)?.name ?? ''}
-          areaName={(id) => areas.find((a) => a.id === id)?.name ?? id}
+          areaName={(id) => (id ? areas.find((a) => a.id === id)?.name ?? id : 'Sin área')}
           onClose={() => setEditing(null)}
           onSave={async (name, levels, payerUid, members) => {
             const r = await saveFlow(session, editing === 'new' ? null : editing.id, name, levels, payerUid, people, flows ?? [], members);
@@ -135,7 +135,7 @@ function FlowEditor({
   flow: Flow | null;
   people: Person[];
   flowName: (id: string) => string;
-  areaName: (id: string) => string;
+  areaName: (id: string | null) => string;
   onClose: () => void;
   onSave: (name: string, levels: { name: string; minAmount: number; approvers: string[] }[], payerUid: string | null, members: string[]) => Promise<void>;
 }) {
@@ -283,7 +283,7 @@ function FlowEditor({
   );
 }
 
-function Picker({ people, areaName, selected, onChange }: { people: Person[]; areaName: (id: string) => string; selected: string[]; onChange: (u: string[]) => void }) {
+function Picker({ people, areaName, selected, onChange }: { people: Person[]; areaName: (id: string | null) => string; selected: string[]; onChange: (u: string[]) => void }) {
   const [q, setQ] = useState('');
   // Perfiles especiales no pueden aprobar: solo se muestran si quedaron marcados, para poder quitarlos.
   const shown = people.filter(
@@ -331,7 +331,7 @@ function MemberPicker({
   people: Person[];
   currentFlowId: string | null;
   flowName: (id: string) => string;
-  areaName: (id: string) => string;
+  areaName: (id: string | null) => string;
   selected: string[];
   onChange: (uids: string[]) => void;
 }) {

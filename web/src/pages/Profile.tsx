@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, updateProfile } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
-import { LIMITS } from '@rendiciones/shared';
+import { LIMITS, formatRut } from '@rendiciones/shared';
 import { useAuth, useSession } from '../auth';
 import { db } from '../firebase';
 import { useGlobalBusy } from '@rendiciones/shared/Busy';
@@ -31,8 +31,10 @@ export function Profile() {
         <h2>Tu cuenta</h2>
         <div className="info-grid">
           <Info label="Correo" value={profile.email} />
+          <Info label="RUT" value={profile.rut ? formatRut(profile.rut) : '—'} />
+          <Info label="Cargo" value={profile.position || '—'} />
           <Info label="Empresa" value={company.name} />
-          <Info label="Área" value={areaName} />
+          <Info label="Área" value={profile.areaId ? areaName : 'Sin área'} />
           <Info label="Flujo de aprobación" value={flow?.name ?? 'Sin flujo asignado'} />
           <Info label="Aprobador" value={profile.isApprover ? 'Sí, apruebas rendiciones de tu equipo' : 'No'} />
         </div>

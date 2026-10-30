@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { formatRut, isValidRut } from '@rendiciones/shared';
 import { api } from '../api';
 import { Modal, PageHeader } from '../components';
 import { fmtDateTime, useCatalog, useCompany, useLoad } from '../hooks';
@@ -8,8 +9,10 @@ interface UserRow {
   uid: string;
   email: string;
   displayName: string;
+  rut?: string;
+  position?: string;
   companyId: string | null;
-  areaId?: string;
+  areaId?: string | null;
   flowId?: string | null;
   isApprover?: boolean;
   paymentsUser?: boolean;
@@ -92,7 +95,11 @@ export function Users() {
                   <tr key={u.uid}>
                     <td>
                       <div className="strong">{u.displayName || '—'}</div>
-                      <div className="muted small">{u.email}</div>
+                      <div className="muted small">
+                        {u.position ? `${u.position} · ` : ''}
+                        {u.rut ? `${formatRut(u.rut)} · ` : ''}
+                        {u.email}
+                      </div>
                       <div className="row tight">
                         {u.isApprover && <span className="badge info">Aprobador</span>}
                         {u.paymentsUser && <span className="badge approved">💳 Pagos</span>}
@@ -100,7 +107,7 @@ export function Users() {
                       </div>
                     </td>
                     {!companyId && <td>{u.orphan ? <span className="badge rejected">Sin empresa</span> : companyName(u.companyId)}</td>}
-                    {companyId && <td>{areaName(u.areaId)}</td>}
+                    {companyId && <td>{u.areaId ? areaName(u.areaId) : <span className="muted small">Sin área</span>}</td>}
                     {companyId && (
                       <td>
                         {u.paymentsUser || u.companyAdmin ? (
@@ -151,6 +158,8 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   const { areas, flows } = useCatalog(companyId);
   const [email, setEmail] = useState(user?.email ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
+  const [rut, setRut] = useState(user?.rut ? formatRut(user.rut) : '');
+  const [position, setPosition] = useState(user?.position ?? '');
   const [areaId, setAreaId] = useState(user?.areaId ?? '');
   const [flowId, setFlowId] = useState(user?.flowId ?? '');
   const [paymentsUser, setPaymentsUser] = useState(!!user?.paymentsUser);
@@ -161,25 +170,26 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
   const [resetLink, setResetLink] = useState<string | null>(null);
 
-  const activeAreas = areas.data?.filter((a) => a.active) ?? [];
-  const effectiveArea = areaId || activeAreas[0]?.id || '';
+  const activeAreas = areas.data?.filter((a) => a.active || a.id === user?.areaId) ?? [];
+  const effectiveArea = areaId || null;
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (!effectiveArea) return setError('La empresa no tiene áreas. Créalas en “Áreas y categorías”.');
+    if (!isValidRut(rut)) return setError('El RUT no es válido. Revisa el dígito verificador (ej: 12.345.678-5).');
+    if (!position.trim()) return setError('Indica el cargo en la empresa.');
     setBusy(true);
     setError(null);
     try {
       if (isNew) {
-        await api.post('/users', { email, displayName, companyId, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin, password });
+        await api.post('/users', { email, displayName, rut, position, companyId, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin, password });
         setCreated({ email, password });
         return;
       }
       if (isOrphan) {
-        await api.post(`/users/${user!.uid}/profile`, { displayName, companyId, areaId: effectiveArea, flowId: flowId || null });
+        await api.post(`/users/${user!.uid}/profile`, { displayName, rut, position, companyId, areaId: effectiveArea, flowId: flowId || null });
         return onSaved();
       }
-      await api.patch(`/users/${user!.uid}`, { displayName, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin });
+      await api.patch(`/users/${user!.uid}`, { displayName, rut, position, areaId: effectiveArea, flowId: paymentsUser || companyAdmin ? null : flowId || null, paymentsUser, companyAdmin });
       if (password) await api.post(`/users/${user!.uid}/password`, { password });
       onSaved();
     } catch (err) {
@@ -231,8 +241,20 @@ function UserModal({ user, defaultCompany, onClose, onSaved }: { user: UserRow |
         </div>
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="area">Área</label>
-            <select id="area" required value={effectiveArea} onChange={(e) => setAreaId(e.target.value)}>
+            <label htmlFor="rut">RUT</label>
+            <input id="rut" required placeholder="12.345.678-5" value={rut} onChange={(e) => setRut(e.target.value)} onBlur={() => isValidRut(rut) && setRut(formatRut(rut))} />
+            {rut && !isValidRut(rut) && <div className="hint text-bad">RUT inválido</div>}
+          </div>
+          <div className="field">
+            <label htmlFor="pos">Cargo en la empresa</label>
+            <input id="pos" required maxLength={80} placeholder="Ej: Ejecutivo comercial" value={position} onChange={(e) => setPosition(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor="area">Área (opcional)</label>
+            <select id="area" value={areaId ?? ''} onChange={(e) => setAreaId(e.target.value)}>
+              <option value="">Sin área</option>
               {activeAreas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>

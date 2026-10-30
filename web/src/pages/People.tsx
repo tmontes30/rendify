@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { LIMITS, type Area, type Flow } from '@rendiciones/shared';
+import { LIMITS, formatRut, isValidRut, normalizeRut, type Area, type Flow } from '@rendiciones/shared';
 import { useSession } from '../auth';
 import { companyLink } from '../companyPath';
 import { adminError, createPerson, listAreas, listFlows, listPeople, sendPasswordLink, updatePerson, type Person } from '../adminData';
@@ -39,9 +39,11 @@ export function People() {
     void load();
   }, [load]);
 
-  const areaName = (id: string) => areas.find((a) => a.id === id)?.name ?? id;
+  const areaName = (id: string | null) => (id ? areas.find((a) => a.id === id)?.name ?? id : '');
   const flowName = (id: string | null) => (id ? flows.find((f) => f.id === id)?.name ?? id : null);
-  const shown = (people ?? []).filter((p) => `${p.displayName} ${p.email} ${areaName(p.areaId)}`.toLowerCase().includes(filter.toLowerCase()));
+  const shown = (people ?? []).filter((p) =>
+    `${p.displayName} ${p.email} ${areaName(p.areaId)} ${p.position ?? ''} ${p.rut ?? ''}`.toLowerCase().includes(filter.toLowerCase()),
+  );
 
   async function toggle(p: Person) {
     if (p.active && !confirm(`¿Desactivar a ${p.displayName}? Perderá el acceso de inmediato.`)) return;
@@ -71,10 +73,9 @@ export function People() {
         </div>
         <div className="row">
           <input className="search" placeholder="Buscar…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          <button className="primary" onClick={() => setEditing('new')} disabled={!areas.length}>+ Nueva persona</button>
+          <button className="primary" onClick={() => setEditing('new')}>+ Nueva persona</button>
         </div>
       </div>
-      {!areas.length && people && <div className="alert warn">Tu empresa aún no tiene áreas. Pídele al administrador del servicio que las cree.</div>}
       {error && <div className="alert error">{error}</div>}
       {msg && <div className="alert ok">{msg}</div>}
 
@@ -99,14 +100,18 @@ export function People() {
                 <tr key={p.uid}>
                   <td>
                     <div className="strong">{p.displayName}</div>
-                    <div className="muted small">{p.email}</div>
+                    <div className="muted small">
+                      {p.position ? `${p.position} · ` : ''}
+                      {p.rut ? `${formatRut(p.rut)} · ` : ''}
+                      {p.email}
+                    </div>
                     <div className="row tight">
                       {p.isApprover && <span className="badge info">Aprobador</span>}
                       {p.paymentsUser && <span className="badge approved">💳 Pagos</span>}
                       {p.companyAdmin && <span className="badge resent">🗂 Admin. personal</span>}
                     </div>
                   </td>
-                  <td>{areaName(p.areaId)}</td>
+                  <td>{p.areaId ? areaName(p.areaId) : <span className="muted small">Sin área</span>}</td>
                   <td>{p.paymentsUser || p.companyAdmin ? <span className="muted small">No rinde</span> : flowName(p.flowId) ?? <span className="badge pending">Sin flujo</span>}</td>
                   <td>
                     <span className={`badge ${p.active ? 'approved' : 'rejected'}`}>{p.active ? 'Activo' : 'Desactivado'}</span>
@@ -158,7 +163,9 @@ function PersonModal({
   const isNew = !person;
   const [email, setEmail] = useState(person?.email ?? '');
   const [displayName, setDisplayName] = useState(person?.displayName ?? '');
-  const [areaId, setAreaId] = useState(person?.areaId ?? areas[0]?.id ?? '');
+  const [rut, setRut] = useState(person?.rut ? formatRut(person.rut) : '');
+  const [position, setPosition] = useState(person?.position ?? '');
+  const [areaId, setAreaId] = useState(person?.areaId ?? '');
   const [flowId, setFlowId] = useState(person?.flowId ?? '');
   const [paymentsUser, setPaymentsUser] = useState(!!person?.paymentsUser);
   const [password, setPassword] = useState(isNew ? generatePassword() : '');
@@ -168,10 +175,12 @@ function PersonModal({
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (!isValidRut(rut)) return setError('El RUT no es válido. Revisa el dígito verificador (ej: 12.345.678-5).');
+    if (!position.trim()) return setError('Indica el cargo en la empresa.');
     setBusy(true);
     setError(null);
     try {
-      const data = { displayName, areaId, flowId: paymentsUser || person?.companyAdmin ? null : flowId || null, paymentsUser };
+      const data = { displayName, rut: normalizeRut(rut)!, position, areaId: areaId || null, flowId: paymentsUser || person?.companyAdmin ? null : flowId || null, paymentsUser };
       if (isNew) {
         await createPerson(session, email, password, data);
         setCreated({ email: email.trim().toLowerCase(), password });
@@ -217,8 +226,20 @@ function PersonModal({
         </div>
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="pa">Área</label>
-            <select id="pa" required value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+            <label htmlFor="prut">RUT</label>
+            <input id="prut" required placeholder="12.345.678-5" value={rut} onChange={(e) => setRut(e.target.value)} onBlur={() => isValidRut(rut) && setRut(formatRut(rut))} />
+            {rut && !isValidRut(rut) && <div className="hint text-bad">RUT inválido</div>}
+          </div>
+          <div className="field">
+            <label htmlFor="ppos">Cargo en la empresa</label>
+            <input id="ppos" required maxLength={80} placeholder="Ej: Ejecutivo comercial" value={position} onChange={(e) => setPosition(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor="pa">Área (opcional)</label>
+            <select id="pa" value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+              <option value="">Sin área</option>
               {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>

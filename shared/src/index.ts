@@ -166,8 +166,13 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  /** RUT chileno normalizado (12345678-9). Obligatorio para personas nuevas. */
+  rut?: string;
+  /** Cargo en la empresa. Obligatorio para personas nuevas. */
+  position?: string;
   companyId: string;
-  areaId: string;
+  /** Área (opcional). */
+  areaId: string | null;
   flowId: string | null;
   isApprover: boolean;
   /** Usuario de pagos: puede ser "quién paga" en un flujo y registrar pagos en la web. Lo marca el owner. */
@@ -369,6 +374,45 @@ export function isSpecialProfile(u: { paymentsUser?: boolean; companyAdmin?: boo
 /** Horas que puede esperar una rendición en un nivel antes de avisar al aprobador. */
 export const REMINDER_HOURS = 24;
 
+// ---------- RUT chileno ----------
+/** Deja el RUT como 12345678-9 (sin puntos, DV en mayúscula) o null si no tiene forma de RUT. */
+export function normalizeRut(input: string): string | null {
+  const clean = input.replace(/[.\s-]/g, '').toUpperCase();
+  if (!/^\d{6,8}[\dK]$/.test(clean)) return null;
+  return `${clean.slice(0, -1)}-${clean.slice(-1)}`;
+}
+
+/** Valida el dígito verificador (módulo 11). */
+export function isValidRut(input: string): boolean {
+  const rut = normalizeRut(input);
+  if (!rut) return false;
+  const [body, dv] = rut.split('-');
+  let sum = 0;
+  let mul = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    sum += Number(body[i]) * mul;
+    mul = mul === 7 ? 2 : mul + 1;
+  }
+  const res = 11 - (sum % 11);
+  const expected = res === 11 ? '0' : res === 10 ? 'K' : String(res);
+  return dv === expected;
+}
+
+/** 12.345.678-9 para mostrar. */
+export function formatRut(rut: string | undefined | null): string {
+  const n = rut ? normalizeRut(rut) : null;
+  if (!n) return rut ?? '';
+  const [body, dv] = n.split('-');
+  return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv}`;
+}
+
+const rutField = z
+  .string()
+  .trim()
+  .refine((v) => isValidRut(v), 'RUT inválido')
+  .transform((v) => normalizeRut(v)!);
+const positionField = z.string().trim().min(1, 'Indica el cargo').max(80);
+
 // ---------- Validaciones para la app de administración ----------
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const id = z.string().min(1).max(64);
@@ -382,8 +426,10 @@ export const companySchema = z.object({
 export const createUserSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
   displayName: z.string().trim().min(1).max(LIMITS.name),
+  rut: rutField,
+  position: positionField,
   companyId: id,
-  areaId: id,
+  areaId: id.nullable().default(null),
   flowId: id.nullable().default(null),
   paymentsUser: z.boolean().default(false),
   companyAdmin: z.boolean().default(false),
@@ -392,7 +438,9 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   displayName: z.string().trim().min(1).max(LIMITS.name).optional(),
-  areaId: id.optional(),
+  rut: rutField.optional(),
+  position: positionField.optional(),
+  areaId: id.nullable().optional(),
   flowId: id.nullable().optional(),
   paymentsUser: z.boolean().optional(),
   companyAdmin: z.boolean().optional(),

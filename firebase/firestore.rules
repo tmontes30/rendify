@@ -62,10 +62,17 @@ service cloud.firestore {
       return member(cid) && profile().companyAdmin == true;
     }
 
+    // RUT 12345678-9 y cargo: obligatorios al crear; en perfiles antiguos pueden faltar.
+    function rutOk(v) {
+      return v is string && v.matches('^[0-9]{6,8}-[0-9K]$');
+    }
+
     function userFields(d) {
       return str(d.displayName, 1, 100)
         && d.displayName.trim() == d.displayName
-        && str(d.areaId, 1, 64)
+        && (d.get('areaId', null) == null || str(d.areaId, 1, 64))
+        && (d.get('rut', null) == null || rutOk(d.rut))
+        && (d.get('position', null) == null || str(d.position, 1, 80))
         && (d.flowId == null || str(d.flowId, 1, 64))
         && d.isApprover is bool
         && d.paymentsUser is bool
@@ -87,11 +94,13 @@ service cloud.firestore {
       // El administrador de personal crea perfiles en SU empresa (nunca otros administradores).
       allow create: if companyAdmin(request.resource.data.companyId)
         && request.resource.data.keys().hasOnly([
-             'email', 'displayName', 'companyId', 'areaId', 'flowId', 'isApprover',
+             'email', 'displayName', 'rut', 'position', 'companyId', 'areaId', 'flowId', 'isApprover',
              'paymentsUser', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.keys().hasAll([
-             'email', 'displayName', 'companyId', 'areaId', 'flowId', 'isApprover',
+             'email', 'displayName', 'rut', 'position', 'companyId', 'areaId', 'flowId', 'isApprover',
              'paymentsUser', 'active', 'createdAt', 'createdBy'])
+        && rutOk(request.resource.data.rut)
+        && str(request.resource.data.position, 1, 80)
         && str(request.resource.data.email, 3, 200)
         && request.resource.data.createdAt == request.time
         && request.resource.data.createdBy == request.auth.uid
@@ -102,7 +111,7 @@ service cloud.firestore {
       allow update: if resource.data.companyId is string
         && companyAdmin(resource.data.companyId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'displayName', 'areaId', 'flowId', 'isApprover', 'paymentsUser', 'active'])
+             'displayName', 'rut', 'position', 'areaId', 'flowId', 'isApprover', 'paymentsUser', 'active'])
         && userFields(request.resource.data);
 
       // Cada usuario activo puede cambiar solo su propio nombre. Empresa, área,

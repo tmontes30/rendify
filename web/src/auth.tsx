@@ -53,14 +53,14 @@ async function loadSession(user: User): Promise<Loaded> {
   if (!comp.exists()) return null;
   if (comp.data().active === false) return { suspended: (comp.data().name as string) ?? '' };
   const [area, flow] = await Promise.all([
-    getDoc(doc(db, 'companies', companyId, 'areas', profile.areaId)),
+    profile.areaId ? getDoc(doc(db, 'companies', companyId, 'areas', profile.areaId)) : Promise.resolve(null),
     profile.flowId ? getDoc(doc(db, 'companies', companyId, 'flows', profile.flowId)) : Promise.resolve(null),
   ]);
   return {
     user,
     profile,
     company: { id: comp.id, ...(comp.data() as Omit<Company, 'id'>) },
-    areaName: (area.data()?.name as string) ?? profile.areaId,
+    areaName: (area?.data()?.name as string) ?? profile.position ?? '',
     flow: flow?.exists() ? ({ id: flow.id, ...flow.data() } as Flow) : null,
   };
 }
